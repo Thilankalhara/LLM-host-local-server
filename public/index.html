@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Local AI Assistant</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="container">
+  <h1>🤖 Local AI Assistant</h1>
+  <div class="chat-box" id="chat"></div>
+  <div id="file-preview" class="file-preview"></div>
+  <div class="input-area">
+    <input type="text" id="input" placeholder="Ask something..." onkeydown="if(event.key==='Enter') send()">
+    <label class="file-label" for="file" title="Attach files">📎</label>
+    <input type="file" id="file" multiple>
+    <button id="send-btn" onclick="send()">Send</button>
+    <button id="stop-btn" onclick="stop()" disabled>⏹ Stop</button>
+  </div>
+</div>
+<script src="script.js"></script>
+</body>
+</html>
