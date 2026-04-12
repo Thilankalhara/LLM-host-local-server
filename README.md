@@ -53,8 +53,7 @@ ollama serve
 ### 4. Clone or download this project
 
 ```bash
-git clone https://github.com/Thilan kalhara/local-ai-assistant.git
-cd local-ai-assistant
+git clone https://github.com/Thilankalhara/LLM-host-local-server
 ```
 
 ### 5. Install Node dependencies
