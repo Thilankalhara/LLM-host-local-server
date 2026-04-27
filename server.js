@@ -256,20 +256,30 @@ app.post('/chat', upload.array('files', 10), async (req, res) => {
       res.write(`data: ${JSON.stringify({ token: '🌐 *Searching the web...*\n\n' })}\n\n`);
     }
 
-    const stream = await ollama.chat({
-      model,
-      messages,
-      stream: true,
-      options: { temperature: 0.7, num_ctx: 4096 },
-    });
-
     let fullReply = '';
-    for await (const chunk of stream) {
-      const token = chunk.message?.content || '';
-      if (token) {
-        fullReply += token;
-        res.write(`data: ${JSON.stringify({ token })}\n\n`);
+    try {
+      const stream = await ollama.chat({
+        model,
+        messages,
+        stream: true,
+        options: { temperature: 0.7, num_ctx: 4096 },
+      });
+
+      for await (const chunk of stream) {
+        const token = chunk.message?.content || '';
+        if (token) {
+          fullReply += token;
+          res.write(`data: ${JSON.stringify({ token })}\n\n`);
+        }
       }
+    } catch (streamErr) {
+      console.error('❌ Stream error:', streamErr.message || streamErr);
+      const errorMsg = streamErr.message?.includes('memory') 
+        ? '❌ Ollama out of memory. Try a smaller model or close other apps.'
+        : `❌ Ollama error: ${streamErr.message || 'Unknown streaming error'}`;
+      res.write(`data: ${JSON.stringify({ error: errorMsg })}\n\n`);
+      res.end();
+      return;
     }
 
     // Save to history

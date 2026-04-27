@@ -49,6 +49,13 @@ internetBtn.addEventListener('click', () => {
   internetBtn.classList.toggle('on', useInternet);
 });
 
+// ── Model change listener ────────────────────────────────
+modelSelect.addEventListener('change', () => {
+  if (currentChatId) {
+    newChat();
+  }
+});
+
 // ── Init ─────────────────────────────────────────────────
 loadModels();
 loadChatList();
