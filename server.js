@@ -10,6 +10,10 @@ const app = express();
 const upload = multer({ dest: 'uploads/' });
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 const ollama = new Ollama({ host: OLLAMA_HOST });
+// How long (seconds) to keep models loaded between requests to avoid cold starts
+const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE
+  ? parseInt(process.env.OLLAMA_KEEP_ALIVE, 10)
+  : 3600; // default 1 hour
 
 app.use(express.json());
 // Simple request logger to help debug 405/route issues
@@ -271,11 +275,12 @@ app.post('/chat', upload.array('files', 10), async (req, res) => {
     let fullReply = '';
     try {
       const stream = await ollama.chat({
-        model,
-        messages,
-        stream: true,
-        options: { temperature: 0.7, num_ctx: 4096 },
-      });
+          model,
+          messages,
+          stream: true,
+          keep_alive: OLLAMA_KEEP_ALIVE,
+          options: { temperature: 0.7, num_ctx: 4096 },
+        });
 
       for await (const chunk of stream) {
         const token = chunk.message?.content || '';
