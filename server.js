@@ -1,4 +1,4 @@
-import ollama from 'ollama';
+import { Ollama } from 'ollama';
 import express from 'express';
 import multer from 'multer';
 import fs from 'fs';
@@ -8,6 +8,8 @@ import https from 'https';
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
+const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
+const ollama = new Ollama({ host: OLLAMA_HOST });
 
 app.use(express.json());
 // Simple request logger to help debug 405/route issues
@@ -52,9 +54,19 @@ app.get('/api/models', async (req, res) => {
     res.json(models);
   } catch (err) {
     console.error('❌ /api/models error:', err.message);
-    res.status(500).json({ error: 'Ollama not running or unreachable: ' + err.message });
+    res.status(500).json({
+      error: `Ollama not running or unreachable at ${OLLAMA_HOST}: ${err.message}`,
+    });
   }
 });
+
+function formatOllamaError(err) {
+  const message = err?.message || 'Unknown Ollama error';
+  if (/fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT/i.test(message)) {
+    return `Cannot reach Ollama at ${OLLAMA_HOST}. Start Ollama with \"ollama serve\" or set OLLAMA_HOST to the correct address.`;
+  }
+  return message;
+}
 
 // ── Web search via DuckDuckGo (no API key needed) ────────
 function webSearch(query) {
@@ -276,7 +288,7 @@ app.post('/chat', upload.array('files', 10), async (req, res) => {
       console.error('❌ Stream error:', streamErr.message || streamErr);
       const errorMsg = streamErr.message?.includes('memory') 
         ? '❌ Ollama out of memory. Try a smaller model or close other apps.'
-        : `❌ Ollama error: ${streamErr.message || 'Unknown streaming error'}`;
+        : `❌ Ollama error: ${formatOllamaError(streamErr)}`;
       res.write(`data: ${JSON.stringify({ error: errorMsg })}\n\n`);
       res.end();
       return;
