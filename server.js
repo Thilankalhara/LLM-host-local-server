@@ -14,6 +14,8 @@ const ollama = new Ollama({ host: OLLAMA_HOST });
 const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE
   ? parseInt(process.env.OLLAMA_KEEP_ALIVE, 10)
   : 3600; // default 1 hour
+// Default model to use (fast: deepseek-coder:1.3b, balanced: qwen2.5-coder:3b, powerful: qwen2.5-coder:7b)
+const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'deepseek-coder:1.3b';
 
 app.use(express.json());
 // Simple request logger to help debug 405/route issues
@@ -197,7 +199,7 @@ app.post('/chat', upload.array('files', 10), async (req, res) => {
   try {
     const message     = req.body.message     || '';
     const chatId      = req.body.chatId      || null;
-    const model       = req.body.model       || 'llama3.2';
+    const model       = req.body.model       || DEFAULT_MODEL;
     const useInternet = req.body.useInternet === 'true';
     const files       = req.files || [];
 
@@ -275,12 +277,12 @@ app.post('/chat', upload.array('files', 10), async (req, res) => {
     let fullReply = '';
     try {
       const stream = await ollama.chat({
-          model,
-          messages,
-          stream: true,
-          keep_alive: OLLAMA_KEEP_ALIVE,
-          options: { temperature: 0.7, num_ctx: 4096 },
-        });
+        model,
+        messages,
+        stream: true,
+        keep_alive: OLLAMA_KEEP_ALIVE,
+        options: { temperature: 0.7, num_ctx: 2048 },
+      });
 
       for await (const chunk of stream) {
         const token = chunk.message?.content || '';
