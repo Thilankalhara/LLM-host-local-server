@@ -16,6 +16,18 @@ const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE
   : 3600; // default 1 hour
 // Default model to use (fast: deepseek-coder:1.3b, balanced: qwen2.5-coder:3b, powerful: qwen2.5-coder:7b)
 const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'deepseek-coder:1.3b';
+// How many memory items to include in the system prompt (keeps prompts small)
+const MEMORY_LIMIT = process.env.MEMORY_LIMIT ? parseInt(process.env.MEMORY_LIMIT, 10) : 10;
+// How many chat messages to include from history (keeps old chats usable but faster)
+const CHAT_HISTORY_LIMIT = process.env.CHAT_HISTORY_LIMIT ? parseInt(process.env.CHAT_HISTORY_LIMIT, 10) : 8;
+// Context window used for generation; smaller values reduce latency on heavier models
+const MODEL_NUM_CTX = process.env.MODEL_NUM_CTX ? parseInt(process.env.MODEL_NUM_CTX, 10) : 1024;
+// Cap the number of generated tokens so a reply cannot run forever
+const MODEL_NUM_PREDICT = process.env.MODEL_NUM_PREDICT ? parseInt(process.env.MODEL_NUM_PREDICT, 10) : 192;
+// Fail a slow request instead of waiting indefinitely
+const CHAT_TIMEOUT_MS = process.env.CHAT_TIMEOUT_MS ? parseInt(process.env.CHAT_TIMEOUT_MS, 10) : 120000;
+// Track last used model to unload it when switching (freeing memory)
+let lastLoadedModel = null;
 
 app.use(express.json());
 // Simple request logger to help debug 405/route issues
@@ -134,7 +146,7 @@ app.post('/api/chats', (req, res) => {
   try {
     const chats = loadChats();
     const id    = randomUUID();
-    const chat  = { id, title: 'New Chat', messages: [], updatedAt: new Date().toISOString() };
+    const chat  = { id, title: 'New Chat', model: null, messages: [], updatedAt: new Date().toISOString() };
     chats[id]   = chat;
     saveChats(chats);
     res.json(chat);
@@ -182,6 +194,16 @@ app.delete('/api/memory/:id', (req, res) => {
   }
 });
 
+// Clear all memories
+app.delete('/api/memory', (req, res) => {
+  try {
+    saveMemory([]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/memory', (req, res) => {
   try {
     const memory = loadMemory();
@@ -194,6 +216,43 @@ app.post('/api/memory', (req, res) => {
   }
 });
 
+// ── Unload models to free memory ───────────────────────
+async function unloadModel(modelName) {
+  if (!modelName) return;
+  try {
+    console.log(`🔌 Unloading model: ${modelName}`);
+    // Send empty generate request with keep_alive: 0 to unload immediately
+    await ollama.generate({ model: modelName, prompt: '', keep_alive: 0 });
+  } catch (e) {
+    // Silent fail - model may not be loaded
+  }
+}
+
+async function unloadNonActiveModels(activeModel, hintedOldModel) {
+  const toUnload = new Set();
+
+  if (hintedOldModel && hintedOldModel !== activeModel) {
+    toUnload.add(hintedOldModel);
+  }
+  if (lastLoadedModel && lastLoadedModel !== activeModel) {
+    toUnload.add(lastLoadedModel);
+  }
+
+  // Fire-and-forget so unloading does not add latency to the active request.
+  for (const name of toUnload) {
+    setImmediate(() => unloadModel(name));
+  }
+}
+
+function getModelOptions(model) {
+  const isQwen = /qwen/i.test(model);
+  return {
+    temperature: isQwen ? 0.2 : 0.7,
+    num_ctx: isQwen ? Math.min(MODEL_NUM_CTX, 768) : MODEL_NUM_CTX,
+    num_predict: isQwen ? Math.min(MODEL_NUM_PREDICT, 128) : MODEL_NUM_PREDICT,
+  };
+}
+
 // ── Stream chat ──────────────────────────────────────────
 app.post('/chat', upload.array('files', 10), async (req, res) => {
   try {
@@ -201,9 +260,15 @@ app.post('/chat', upload.array('files', 10), async (req, res) => {
     const chatId      = req.body.chatId      || null;
     const model       = req.body.model       || DEFAULT_MODEL;
     const useInternet = req.body.useInternet === 'true';
+    const oldModel    = req.body.oldModel    || null;
     const files       = req.files || [];
 
     console.log(`📩 message: "${message}" | model: ${model} | internet: ${useInternet}`);
+
+    // Keep only the current model loaded to reduce RAM/VRAM pressure.
+    // Unloading happens in the background so the active request is not delayed.
+    unloadNonActiveModels(model, oldModel);
+    lastLoadedModel = model;
 
     // Read uploaded files
     let fileContext = '';
@@ -236,7 +301,13 @@ app.post('/chat', upload.array('files', 10), async (req, res) => {
 
     if (memory.length > 0) {
       systemPrompt += `\n\nIMPORTANT - Always remember these facts about the user:\n`;
-      memory.forEach(m => { systemPrompt += `- ${m.text}\n`; });
+      // Only include the most recent MEMORY_LIMIT entries to keep prompts small
+      const recent = memory.slice(-MEMORY_LIMIT);
+      recent.forEach(m => { systemPrompt += `- ${m.text}\n`; });
+      if (memory.length > MEMORY_LIMIT) {
+        systemPrompt += `\n(Note: Only the most recent ${MEMORY_LIMIT} memories are included to improve response performance.)\n`;
+        console.log(`🔧 Memory truncated: sent ${recent.length} of ${memory.length} items`);
+      }
     }
 
     if (useInternet && searchContext) {
@@ -253,8 +324,11 @@ app.post('/chat', upload.array('files', 10), async (req, res) => {
       const chats = loadChats();
       const chat  = chats[chatId];
       if (chat && chat.messages.length > 0) {
-        for (const m of chat.messages.slice(-30)) {
+        for (const m of chat.messages.slice(-CHAT_HISTORY_LIMIT)) {
           messages.push({ role: m.role, content: m.content });
+        }
+        if (chat.messages.length > CHAT_HISTORY_LIMIT) {
+          console.log(`🧾 History truncated: sent ${CHAT_HISTORY_LIMIT} of ${chat.messages.length} messages`);
         }
       }
     }
@@ -276,21 +350,30 @@ app.post('/chat', upload.array('files', 10), async (req, res) => {
 
     let fullReply = '';
     try {
+      const timeoutHandle = setTimeout(() => {
+        if (!res.writableEnded) {
+          res.write(`data: ${JSON.stringify({ error: `❌ Request timed out after ${Math.round(CHAT_TIMEOUT_MS / 1000)}s. Try a smaller model or shorter chat history.` })}\n\n`);
+          res.end();
+        }
+      }, CHAT_TIMEOUT_MS);
+
       const stream = await ollama.chat({
         model,
         messages,
         stream: true,
         keep_alive: OLLAMA_KEEP_ALIVE,
-        options: { temperature: 0.7, num_ctx: 2048 },
+        options: getModelOptions(model),
       });
 
       for await (const chunk of stream) {
+        if (res.writableEnded) break;
         const token = chunk.message?.content || '';
         if (token) {
           fullReply += token;
           res.write(`data: ${JSON.stringify({ token })}\n\n`);
         }
       }
+      clearTimeout(timeoutHandle);
     } catch (streamErr) {
       console.error('❌ Stream error:', streamErr.message || streamErr);
       const errorMsg = streamErr.message?.includes('memory') 
@@ -305,6 +388,7 @@ app.post('/chat', upload.array('files', 10), async (req, res) => {
     if (chatId) {
       const chats = loadChats();
       if (chats[chatId]) {
+        chats[chatId].model = model;
         chats[chatId].messages.push({ role: 'user',      content: message   });
         chats[chatId].messages.push({ role: 'assistant', content: fullReply });
         chats[chatId].updatedAt = new Date().toISOString();

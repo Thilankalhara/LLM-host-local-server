@@ -3,6 +3,7 @@ let currentChatId = null;
 let selectedFiles = [];
 let abortController = null;
 let useInternet = false;
+let lastUsedModel = null;  // Track model to unload on switch
 
 // ── DOM refs ─────────────────────────────────────────────
 const chatBox      = document.getElementById('chat');
@@ -30,6 +31,7 @@ document.getElementById('memory-modal').addEventListener('click', (e) => {
   if (e.target === memoryModal) closeMemory();
 });
 document.getElementById('add-memory-btn').addEventListener('click', addMemory);
+document.getElementById('clear-memory-btn').addEventListener('click', clearAllMemory);
 memoryInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') addMemory(); });
 sendBtn.addEventListener('click', send);
 stopBtn.addEventListener('click', stopStream);
@@ -51,9 +53,7 @@ internetBtn.addEventListener('click', () => {
 
 // ── Model change listener ────────────────────────────────
 modelSelect.addEventListener('change', () => {
-  if (currentChatId) {
-    newChat();
-  }
+  // Keep current chat; only change the model for next send.
 });
 
 // ── Init ─────────────────────────────────────────────────
@@ -150,6 +150,15 @@ async function openChat(id) {
     const res = await fetch(`/api/chats/${id}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const chat = await res.json();
+
+    if (chat.model) {
+      const hasOption = Array.from(modelSelect.options).some(opt => opt.value === chat.model);
+      if (hasOption) {
+        modelSelect.value = chat.model;
+      }
+      lastUsedModel = chat.model;
+    }
+
     chatTitle.textContent = chat.title;
     chatBox.innerHTML = '';
     if (chat.messages.length === 0) {
@@ -235,6 +244,17 @@ async function deleteMemory(id) {
   await loadMemoryList();
 }
 
+async function clearAllMemory() {
+  if (!confirm('Clear all memories? This cannot be undone.')) return;
+  try {
+    const res = await fetch('/api/memory', { method: 'DELETE' });
+    if (!res.ok) throw new Error('Failed to clear memory');
+    await loadMemoryList();
+  } catch (err) {
+    alert('Could not clear memories: ' + err.message);
+  }
+}
+
 // ── Files ────────────────────────────────────────────────
 function renderFileChips() {
   filePreview.innerHTML = '';
@@ -295,7 +315,11 @@ async function send() {
     formData.append('message', message);
     formData.append('chatId', currentChatId);
     formData.append('model', selectedModel);
+    if (lastUsedModel && lastUsedModel !== selectedModel) {
+      formData.append('oldModel', lastUsedModel);
+    }
     formData.append('useInternet', useInternet ? 'true' : 'false');
+    lastUsedModel = selectedModel;
     selectedFiles.forEach(f => formData.append('files', f));
     selectedFiles = [];
     renderFileChips();
