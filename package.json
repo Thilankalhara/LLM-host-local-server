@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "dist": "pkg server.cjs --targets node18-win-x64 --output dist/LocalAIAssistant.exe",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -15,5 +16,18 @@
     "express": "^5.2.1",
     "multer": "^2.1.1",
     "ollama": "^0.6.3"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  },
+  "pkg": {
+    "assets": [
+      "public/**/*",
+      "data/**/*",
+      "uploads/**/*"
+    ],
+    "scripts": [
+      "server.js"
+    ]
   }
 }

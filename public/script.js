@@ -4,6 +4,25 @@ let selectedFiles = [];
 let abortController = null;
 let useInternet = false;
 let lastUsedModel = null;  // Track model to unload on switch
+let deferredInstallPrompt = null;
+let ollamaRunning = false;
+const STORAGE_API_BASE = 'llmHostApiBase';
+const splashScreen = document.getElementById('splash-screen');
+const installBtn = document.getElementById('install-btn');
+const settingsBtn = document.getElementById('settings-btn');
+const ollamaStatus = document.getElementById('ollama-status');
+const tunnelStatus = document.getElementById('tunnel-status');
+const serverUrlInput = document.getElementById('server-url');
+const connectServerBtn = document.getElementById('connect-server-btn');
+const hostBtn = document.getElementById('host-btn');
+const pullModelSelect = document.getElementById('pull-model-select');
+const pullModelBtn = document.getElementById('pull-model-btn');
+const resourceSummary = document.getElementById('resource-summary');
+const settingsModal = document.getElementById('settings-modal');
+const closeSettingsBtn = document.getElementById('close-settings-btn');
+const appBootTime = performance.now();
+const splashMinVisibleMs = 1100;
+let apiBaseUrl = normalizeApiBaseUrl(localStorage.getItem(STORAGE_API_BASE) || window.location.origin);
 
 // ── DOM refs ─────────────────────────────────────────────
 const chatBox      = document.getElementById('chat');
@@ -27,6 +46,11 @@ document.getElementById('toggle-sidebar').addEventListener('click', () => {
 });
 document.getElementById('memory-btn').addEventListener('click', openMemory);
 document.getElementById('close-memory-btn').addEventListener('click', closeMemory);
+settingsBtn.addEventListener('click', openSettings);
+closeSettingsBtn.addEventListener('click', closeSettings);
+settingsModal.addEventListener('click', (e) => {
+  if (e.target === settingsModal) closeSettings();
+});
 document.getElementById('memory-modal').addEventListener('click', (e) => {
   if (e.target === memoryModal) closeMemory();
 });
@@ -44,11 +68,43 @@ fileInput.addEventListener('change', () => {
   renderFileChips();
 });
 
+connectServerBtn.addEventListener('click', connectToServer);
+serverUrlInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') connectToServer();
+});
+hostBtn.addEventListener('click', hostPublicTunnel);
+pullModelBtn.addEventListener('click', pullModel);
+pullModelSelect.addEventListener('change', () => {
+  const selected = pullModelSelect.value;
+  const selectedOption = pullModelSelect.selectedOptions[0];
+  pullModelBtn.disabled = !selected || selectedOption?.dataset.installed === 'true';
+  updateResourceSummary(selected);
+});
+
 // ── Internet toggle ──────────────────────────────────────
 internetBtn.addEventListener('click', () => {
   useInternet = !useInternet;
   internetBtn.textContent = `🌐 Internet: ${useInternet ? 'ON' : 'OFF'}`;
   internetBtn.classList.toggle('on', useInternet);
+});
+
+window.addEventListener('beforeinstallprompt', (event) => {
+  event.preventDefault();
+  deferredInstallPrompt = event;
+  refreshInstallButtonState();
+});
+
+installBtn.addEventListener('click', async () => {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  await deferredInstallPrompt.userChoice;
+  deferredInstallPrompt = null;
+  refreshInstallButtonState();
+});
+
+window.addEventListener('appinstalled', () => {
+  deferredInstallPrompt = null;
+  refreshInstallButtonState();
 });
 
 // ── Model change listener ────────────────────────────────
@@ -57,13 +113,344 @@ modelSelect.addEventListener('change', () => {
 });
 
 // ── Init ─────────────────────────────────────────────────
-loadModels();
-loadChatList();
+bootstrapApp();
+
+async function bootstrapApp() {
+  registerServiceWorker();
+  await Promise.allSettled([
+    refreshOllamaStatus(),
+    refreshTunnelStatus(),
+    loadModels(),
+    loadChatList(),
+  ]);
+  refreshInstallButtonState();
+  syncServerUrlField();
+  await refreshDownloadModelList();
+  hideSplashScreen();
+  setInterval(refreshOllamaStatus, 15000);
+  setInterval(refreshTunnelStatus, 10000);
+}
+
+function registerServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch((err) => {
+      console.warn('Service worker registration failed:', err);
+    });
+  }
+}
+
+function hideSplashScreen() {
+  const elapsed = performance.now() - appBootTime;
+  const wait = Math.max(0, splashMinVisibleMs - elapsed);
+  window.setTimeout(() => {
+    splashScreen.classList.add('hidden');
+    window.setTimeout(() => splashScreen.remove(), 600);
+  }, wait);
+}
+
+function isAppInstalled() {
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+
+function refreshInstallButtonState() {
+  installBtn.hidden = !(deferredInstallPrompt && !isAppInstalled());
+}
+
+function openSettings() {
+  settingsModal.classList.add('open');
+  refreshDownloadModelList();
+}
+
+function closeSettings() {
+  settingsModal.classList.remove('open');
+}
+
+function normalizeApiBaseUrl(value) {
+  if (!value) return window.location.origin;
+  const trimmed = value.trim();
+  if (!trimmed) return window.location.origin;
+  try {
+    return new URL(trimmed).origin;
+  } catch (_) {
+    return window.location.origin;
+  }
+}
+
+function apiUrl(pathname) {
+  return new URL(pathname, apiBaseUrl).toString();
+}
+
+function apiFetch(pathname, options) {
+  return fetch(apiUrl(pathname), options);
+}
+
+function syncServerUrlField() {
+  serverUrlInput.value = apiBaseUrl === window.location.origin ? '' : apiBaseUrl;
+}
+
+function setApiBaseUrl(nextUrl) {
+  apiBaseUrl = normalizeApiBaseUrl(nextUrl);
+  localStorage.setItem(STORAGE_API_BASE, apiBaseUrl);
+  syncServerUrlField();
+}
+
+async function connectToServer() {
+  const enteredUrl = serverUrlInput.value.trim();
+  if (!enteredUrl) {
+    setApiBaseUrl(window.location.origin);
+    await Promise.allSettled([refreshOllamaStatus(), loadModels(), loadChatList(), refreshTunnelStatus(), refreshDownloadModelList()]);
+    return;
+  }
+
+  setApiBaseUrl(enteredUrl);
+  tunnelStatus.textContent = 'Tunnel: Connecting';
+  tunnelStatus.className = 'status-pill status-warn tunnel-status';
+
+  await Promise.allSettled([refreshOllamaStatus(), loadModels(), loadChatList(), refreshTunnelStatus(), refreshDownloadModelList()]);
+}
+
+async function hostPublicTunnel() {
+  hostBtn.disabled = true;
+  hostBtn.textContent = 'Starting...';
+  tunnelStatus.textContent = 'Tunnel: Starting';
+  tunnelStatus.className = 'status-pill status-warn tunnel-status';
+
+  try {
+    const res = await apiFetch('/api/tunnel/start', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+    if (data.url) {
+      serverUrlInput.value = data.url;
+      tunnelStatus.textContent = 'Tunnel: Ready';
+      tunnelStatus.className = 'status-pill status-online tunnel-status';
+      tunnelStatus.title = data.url;
+      alert('Public URL ready: ' + data.url + '\nPaste it into the URL bar and click Connect to use it.');
+    } else {
+      tunnelStatus.textContent = 'Tunnel: Starting';
+      tunnelStatus.className = 'status-pill status-warn tunnel-status';
+      alert('Dev Tunnels is starting. Check the status pill for updates, then copy the public URL when it appears.');
+    }
+
+    await refreshTunnelStatus();
+  } catch (err) {
+    tunnelStatus.textContent = 'Tunnel: Error';
+    tunnelStatus.className = 'status-pill status-offline tunnel-status';
+    tunnelStatus.title = err.message;
+    alert('Could not start public tunnel: ' + err.message);
+  } finally {
+    hostBtn.disabled = false;
+    hostBtn.textContent = 'Host';
+  }
+}
+
+async function refreshTunnelStatus() {
+  try {
+    const res = await apiFetch('/api/tunnel/status');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    if (data.state === 'running' && data.url) {
+      tunnelStatus.textContent = 'Tunnel: Live';
+      tunnelStatus.className = 'status-pill status-online tunnel-status';
+      tunnelStatus.title = data.url;
+      if (!serverUrlInput.value.trim() && data.url) {
+        serverUrlInput.value = data.url;
+      }
+    } else if (data.state === 'starting') {
+      tunnelStatus.textContent = 'Tunnel: Starting';
+      tunnelStatus.className = 'status-pill status-warn tunnel-status';
+    } else if (data.state === 'error') {
+      tunnelStatus.textContent = 'Tunnel: Error';
+      tunnelStatus.className = 'status-pill status-offline tunnel-status';
+    } else {
+      tunnelStatus.textContent = 'Tunnel: Off';
+      tunnelStatus.className = 'status-pill status-pending tunnel-status';
+    }
+  } catch (err) {
+    tunnelStatus.textContent = 'Tunnel: Unavailable';
+    tunnelStatus.className = 'status-pill status-offline tunnel-status';
+    tunnelStatus.title = err.message;
+  }
+}
+
+async function pullModel() {
+  const modelName = (pullModelSelect.value || modelSelect.value || '').trim();
+  if (!modelName) {
+    alert('Choose a model from the dropdown.');
+    return;
+  }
+
+  if (pullModelSelect.selectedOptions[0]?.dataset.installed === 'true') {
+    alert('That model is already installed on this server.');
+    return;
+  }
+
+  pullModelBtn.disabled = true;
+  const previousLabel = pullModelBtn.textContent;
+  pullModelBtn.textContent = 'Downloading...';
+
+  try {
+    const res = await apiFetch('/api/models/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: modelName }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    await refreshDownloadModelList();
+    await loadModels();
+    alert(`Model downloaded: ${data.model}`);
+  } catch (err) {
+    alert('Could not download model: ' + err.message);
+  } finally {
+    pullModelBtn.disabled = false;
+    pullModelBtn.textContent = previousLabel;
+  }
+}
+
+const MODEL_CATALOG = [
+  { name: 'llama3.2:1b', size: 'low', label: 'Llama 3.2 1B' },
+  { name: 'phi3:mini', size: 'low', label: 'Phi-3 Mini' },
+  { name: 'llama3.2:3b', size: 'medium', label: 'Llama 3.2 3B' },
+  { name: 'qwen2.5:3b', size: 'medium', label: 'Qwen 2.5 3B' },
+  { name: 'qwen2.5-coder:3b', size: 'medium', label: 'Qwen 2.5 Coder 3B' },
+  { name: 'mistral:7b', size: 'medium', label: 'Mistral 7B' },
+  { name: 'llama3.1:8b', size: 'high', label: 'Llama 3.1 8B' },
+  { name: 'qwen2.5-coder:7b', size: 'high', label: 'Qwen 2.5 Coder 7B' },
+  { name: 'gemma2:9b', size: 'high', label: 'Gemma 2 9B' },
+];
+
+function getDeviceProfile() {
+  const deviceMemory = navigator.deviceMemory || 4;
+  const hardwareConcurrency = navigator.hardwareConcurrency || 4;
+  let tier = 'low';
+  if (deviceMemory >= 12 || hardwareConcurrency >= 8) tier = 'high';
+  else if (deviceMemory >= 6 || hardwareConcurrency >= 6) tier = 'medium';
+
+  return { deviceMemory, hardwareConcurrency, tier };
+}
+
+function getRecommendedModels(profile) {
+  const recommendedByTier = {
+    low: ['llama3.2:1b', 'phi3:mini'],
+    medium: ['llama3.2:3b', 'qwen2.5:3b', 'qwen2.5-coder:3b', 'mistral:7b'],
+    high: ['llama3.1:8b', 'qwen2.5-coder:7b', 'gemma2:9b'],
+  };
+  return recommendedByTier[profile.tier] || recommendedByTier.medium;
+}
+
+function updateResourceSummary(selectedModel = '') {
+  const profile = getDeviceProfile();
+  const recommended = getRecommendedModels(profile);
+  const recLabel = recommended.join(', ');
+  const installedLabel = selectedModel ? `Selected: ${selectedModel}` : 'Select a model to download';
+  resourceSummary.textContent = `Device: ${profile.deviceMemory} GB RAM, ${profile.hardwareConcurrency} cores. Recommended: ${recLabel}. ${installedLabel}`;
+}
+
+async function refreshDownloadModelList() {
+  try {
+    const res = await apiFetch('/api/models');
+    const installedModels = res.ok ? await res.json() : [];
+    const profile = getDeviceProfile();
+    const recommendedModels = getRecommendedModels(profile);
+    const recommendedSet = new Set(recommendedModels);
+    const installedSet = new Set(installedModels);
+
+    pullModelSelect.innerHTML = '';
+
+    const installedGroup = document.createElement('optgroup');
+    installedGroup.label = 'Installed on this server';
+    if (installedModels.length === 0) {
+      const emptyOption = document.createElement('option');
+      emptyOption.value = '';
+      emptyOption.textContent = 'No models installed yet';
+      emptyOption.disabled = true;
+      installedGroup.appendChild(emptyOption);
+    } else {
+      installedModels.forEach((name) => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        option.dataset.installed = 'true';
+        installedGroup.appendChild(option);
+      });
+    }
+    pullModelSelect.appendChild(installedGroup);
+
+    const recommendedGroup = document.createElement('optgroup');
+    recommendedGroup.label = `Recommended for this device (${profile.tier})`;
+    MODEL_CATALOG.filter(item => recommendedSet.has(item.name)).forEach((item) => {
+      if (installedSet.has(item.name)) return;
+      const option = document.createElement('option');
+      option.value = item.name;
+      option.textContent = `${item.name} — ${item.label}`;
+      recommendedGroup.appendChild(option);
+    });
+    if (recommendedGroup.children.length === 0) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.disabled = true;
+      option.textContent = 'No recommended downloads available';
+      recommendedGroup.appendChild(option);
+    }
+    pullModelSelect.appendChild(recommendedGroup);
+
+    const allGroup = document.createElement('optgroup');
+    allGroup.label = 'All supported downloads';
+    MODEL_CATALOG.filter(item => !installedSet.has(item.name)).forEach((item) => {
+      if (recommendedSet.has(item.name)) return;
+      const option = document.createElement('option');
+      option.value = item.name;
+      option.textContent = `${item.name} — ${item.label}`;
+      allGroup.appendChild(option);
+    });
+    if (allGroup.children.length === 0) {
+      const option = document.createElement('option');
+      option.value = '';
+      option.disabled = true;
+      option.textContent = 'All supported models are already installed';
+      allGroup.appendChild(option);
+    }
+    pullModelSelect.appendChild(allGroup);
+
+    const firstDownloadable = Array.from(pullModelSelect.options).find(option => option.value && option.dataset.installed !== 'true' && !option.disabled);
+    const fallbackOption = Array.from(pullModelSelect.options).find(option => option.value && !option.disabled);
+    pullModelSelect.value = (firstDownloadable || fallbackOption || { value: '' }).value;
+    const selectedOption = pullModelSelect.selectedOptions[0];
+    pullModelBtn.disabled = !pullModelSelect.value || selectedOption?.dataset.installed === 'true';
+    updateResourceSummary(pullModelSelect.value);
+  } catch (err) {
+    resourceSummary.textContent = `Could not load model suggestions: ${err.message}`;
+    pullModelBtn.disabled = true;
+  }
+}
+
+async function refreshOllamaStatus() {
+  try {
+    const res = await apiFetch('/api/ollama/status');
+    const data = await res.json();
+    ollamaRunning = Boolean(data.running);
+    if (ollamaRunning) {
+      ollamaStatus.textContent = data.version ? `Ollama: Running ${data.version}` : 'Ollama: Running';
+      ollamaStatus.className = 'status-pill status-online';
+      ollamaStatus.title = `Connected to Ollama at ${data.host}`;
+    } else {
+      ollamaStatus.textContent = 'Ollama: Offline';
+      ollamaStatus.className = 'status-pill status-offline';
+      ollamaStatus.title = data.error || 'Ollama is not reachable';
+    }
+  } catch (err) {
+    ollamaRunning = false;
+    ollamaStatus.textContent = 'Ollama: Offline';
+    ollamaStatus.className = 'status-pill status-offline';
+    ollamaStatus.title = err.message || 'Ollama is not reachable';
+  }
+}
 
 // ── Load models from Ollama ──────────────────────────────
 async function loadModels() {
   try {
-    const res = await fetch('/api/models');
+    const res = await apiFetch('/api/models');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const models = await res.json();
     modelSelect.innerHTML = '';
@@ -86,7 +473,7 @@ async function loadModels() {
 // ── Chat list ────────────────────────────────────────────
 async function loadChatList() {
   try {
-    const res = await fetch('/api/chats');
+    const res = await apiFetch('/api/chats');
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const chats = await res.json();
     chatList.innerHTML = '';
@@ -128,7 +515,7 @@ async function loadChatList() {
 
 async function newChat() {
   try {
-    const res = await fetch('/api/chats', { method: 'POST' });
+    const res = await apiFetch('/api/chats', { method: 'POST' });
     const text = await res.text();
     if (!res.ok || !text) throw new Error(`Server error (${res.status}): ${text}`);
     const chat = JSON.parse(text);
@@ -147,7 +534,7 @@ async function newChat() {
 async function openChat(id) {
   try {
     currentChatId = id;
-    const res = await fetch(`/api/chats/${id}`);
+    const res = await apiFetch(`/api/chats/${id}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const chat = await res.json();
 
@@ -178,7 +565,7 @@ async function openChat(id) {
 async function renameChat(id) {
   const newTitle = prompt('New name:');
   if (!newTitle) return;
-  await fetch(`/api/chats/${id}`, {
+  await apiFetch(`/api/chats/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: newTitle }),
@@ -189,7 +576,7 @@ async function renameChat(id) {
 
 async function deleteChat(id) {
   if (!confirm('Delete this chat?')) return;
-  await fetch(`/api/chats/${id}`, { method: 'DELETE' });
+  await apiFetch(`/api/chats/${id}`, { method: 'DELETE' });
   if (currentChatId === id) {
     currentChatId = null;
     chatBox.innerHTML = '';
@@ -207,7 +594,7 @@ async function openMemory() {
 function closeMemory() { memoryModal.classList.remove('open'); }
 
 async function loadMemoryList() {
-  const res = await fetch('/api/memory');
+  const res = await apiFetch('/api/memory');
   const memory = await res.json();
   memoryList.innerHTML = '';
   if (memory.length === 0) {
@@ -230,7 +617,7 @@ async function loadMemoryList() {
 async function addMemory() {
   const text = memoryInput.value.trim();
   if (!text) return;
-  await fetch('/api/memory', {
+  await apiFetch('/api/memory', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
@@ -240,14 +627,14 @@ async function addMemory() {
 }
 
 async function deleteMemory(id) {
-  await fetch(`/api/memory/${id}`, { method: 'DELETE' });
+  await apiFetch(`/api/memory/${id}`, { method: 'DELETE' });
   await loadMemoryList();
 }
 
 async function clearAllMemory() {
   if (!confirm('Clear all memories? This cannot be undone.')) return;
   try {
-    const res = await fetch('/api/memory', { method: 'DELETE' });
+    const res = await apiFetch('/api/memory', { method: 'DELETE' });
     if (!res.ok) throw new Error('Failed to clear memory');
     await loadMemoryList();
   } catch (err) {
@@ -279,9 +666,17 @@ async function send() {
   const message = input.value.trim();
   if (!message) return;
 
+  if (!ollamaRunning) {
+    await refreshOllamaStatus();
+    if (!ollamaRunning) {
+      alert('Ollama is not running. Start it with ollama serve and try again.');
+      return;
+    }
+  }
+
   if (!currentChatId) {
     try {
-      const res = await fetch('/api/chats', { method: 'POST' });
+      const res = await apiFetch('/api/chats', { method: 'POST' });
       const text = await res.text();
       if (!res.ok || !text) throw new Error(`Server error (${res.status})`);
       const chat = JSON.parse(text);
@@ -324,7 +719,7 @@ async function send() {
     selectedFiles = [];
     renderFileChips();
 
-    const res = await fetch('/chat', {
+    const res = await apiFetch('/chat', {
       method: 'POST',
       body: formData,
       signal: abortController.signal,

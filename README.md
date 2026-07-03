@@ -15,6 +15,13 @@ Runs 100% on your PC — no internet required, no API costs, total privacy.
 - 📋 **Copy code** — one-click copy any code block
 - ⬇️ **Download code** — download code blocks as files with correct extension
 - ☰ **Collapsible sidebar** — more space when you need it
+- 📱 **Installable app** — install it like a desktop/web app from the browser
+- 🟢 **Ollama status** — see whether Ollama is running before you send
+- ✨ **Splash screen** — animated launch screen on startup
+- 🪟 **Windows EXE build** — Electron packaging available for a portable `.exe`
+- ⚙️ **Settings panel** — connect, host, download models, and install from one place
+- 🌐 **Public tunnel** — generate a shareable URL with Dev Tunnels
+- 📦 **Smart model download** — recommended and installed models are shown automatically
 
 ---
 
@@ -108,6 +115,38 @@ You should see:
 
 Go to: **http://localhost:3000**
 
+Click **⚙️ Settings** to open the panel for host, connect, download, and install actions.
+
+### Windows EXE build
+
+Run:
+
+```powershell
+npm install
+npm run dist
+```
+
+That creates a portable Windows `.exe` in [dist/LocalAIAssistant.exe](dist/LocalAIAssistant.exe).
+
+---
+
+## ⚙️ Settings Panel
+
+The **Settings** panel contains:
+
+- Connect to a local server or paste a tunnel URL
+- Host a public tunnel with Dev Tunnels
+- See Ollama status
+- Download recommended or installed models
+- Install the app
+- Toggle web search
+
+The download dropdown automatically groups:
+
+- Installed models
+- Recommended models for the current device
+- All supported models
+
 ---
 
 ## 💬 How to Use
@@ -160,17 +199,21 @@ Replace with your model name. Check installed models:
 ollama list
 ```
 
-### Recommended models for 8GB RAM
+### Recommended models by device size
 
 | Model | Command | Best for |
 |-------|---------|----------|
-| `deepseek-coder:1.3b` | `ollama pull deepseek-coder:1.3b` | Fast coding (1GB) |
-| `qwen2.5-coder:3b` | `ollama pull qwen2.5-coder:3b` | Better coding (2GB) |
-| `qwen2.5-coder:7b` | `ollama pull qwen2.5-coder:7b` | Best coding (4.7GB) ⭐ |
-| `llama3.2:3b` | `ollama pull llama3.2:3b` | General chat (2GB) |
-| `phi4-mini` | `ollama pull phi4-mini` | Smart & fast (2GB) |
+| `llama3.2:1b` | `ollama pull llama3.2:1b` | Low-RAM devices |
+| `phi3:mini` | `ollama pull phi3:mini` | Low-RAM devices |
+| `llama3.2:3b` | `ollama pull llama3.2:3b` | Balanced general chat |
+| `qwen2.5:3b` | `ollama pull qwen2.5:3b` | Balanced general chat |
+| `qwen2.5-coder:3b` | `ollama pull qwen2.5-coder:3b` | Coding on mid-range PCs |
+| `mistral:7b` | `ollama pull mistral:7b` | Stronger general chat |
+| `llama3.1:8b` | `ollama pull llama3.1:8b` | High-memory PCs |
+| `qwen2.5-coder:7b` | `ollama pull qwen2.5-coder:7b` | High-memory coding |
+| `gemma2:9b` | `ollama pull gemma2:9b` | Larger machines |
 
-> ⚠️ Do NOT use models above 5GB on 8GB RAM — Windows needs ~3GB itself.
+> ⚠️ The app recommends models based on device memory and CPU cores, but Ollama and Windows memory limits still apply.
 
 ---
 
@@ -199,6 +242,16 @@ npm pkg set type="module"
 **Port already in use**
 - Change `3000` to `3001` in `server.js`
 - Visit `http://localhost:3001`
+
+**Settings panel does not open**
+- Hard refresh the page so the latest CSS and script load
+- Click the green **⚙️ Settings** button in the top bar
+- If the page is narrow, the panel still opens as a drawer from the right
+
+**Model download list is empty**
+- Open Settings and check that Ollama is running
+- Try downloading a model directly after connecting to the local server
+- Make sure the browser can reach the server at `http://localhost:3000`
 
 **"Could not create chat: Server error (405)"**
 

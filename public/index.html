@@ -4,9 +4,28 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Local AI Assistant</title>
+  <meta name="theme-color" content="#08111f">
+  <meta name="description" content="Local AI chat app powered by Ollama with chat history, memory, and offline install support.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div class="splash-screen" id="splash-screen" aria-label="Loading app">
+  <div class="splash-card">
+    <div class="splash-mark">
+      <span></span>
+      <span></span>
+      <span></span>
+    </div>
+    <div class="splash-copy">
+      <p class="splash-kicker">Local AI Assistant</p>
+      <h1>Fast, private, always local.</h1>
+      <p class="splash-subtitle">Loading your Ollama workspace and chat history.</p>
+    </div>
+    <div class="splash-loader"><span></span></div>
+  </div>
+</div>
 <div class="app">
 
   <!-- Sidebar -->
@@ -18,6 +37,10 @@
     <div class="chat-list" id="chat-list"></div>
     <div class="sidebar-footer">
       <button class="memory-btn" id="memory-btn">🧠 Memory</button>
+      <div class="developer-credit">
+        <span>Developed by Thilan Kalhara</span>
+        <a href="https://github.com/ThilanKalhara" target="_blank" rel="noreferrer">🐙 GitHub</a>
+      </div>
     </div>
   </div>
 
@@ -27,14 +50,11 @@
       <button class="toggle-sidebar" id="toggle-sidebar">☰</button>
       <span id="chat-title">Select or start a chat</span>
       <div class="topbar-right">
+        <button id="settings-btn" class="settings-btn" title="Open settings">⚙️ Settings</button>
         <!-- Model selector -->
         <select id="model-select" title="Select AI model">
           <option value="">⏳ Loading models...</option>
         </select>
-        <!-- Internet toggle -->
-        <button id="internet-btn" class="internet-btn" title="Toggle web search">
-          🌐 Internet: OFF
-        </button>
       </div>
     </div>
 
@@ -69,6 +89,66 @@
         <button id="clear-memory-btn" style="margin-left:8px;background:#ef4444;color:#fff;border:none;padding:6px 10px;border-radius:6px;">Clear all</button>
       </div>
       <div id="memory-list"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Settings Modal -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal settings-modal">
+    <div class="modal-header">
+      <h2>⚙️ Settings Panel</h2>
+      <button id="close-settings-btn">✕</button>
+    </div>
+    <div class="modal-body settings-body">
+      <p class="settings-note">Use this panel to connect to a server, host a public tunnel, download models, or install the app.</p>
+      <div class="settings-group">
+        <label for="server-url">Server or tunnel URL</label>
+        <div class="settings-row">
+          <input id="server-url" class="server-url" type="url" placeholder="Paste server or tunnel URL" autocomplete="off">
+          <button id="connect-server-btn" class="server-btn connect-btn" title="Connect to the pasted URL">Connect</button>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <label>Public hosting</label>
+        <div class="settings-row">
+          <span id="tunnel-status" class="status-pill status-pending tunnel-status" title="Dev tunnel is not running">Tunnel: Off</span>
+          <button id="host-btn" class="server-btn host-btn" title="Download Dev Tunnels and host this app publicly">Host</button>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <label>Ollama status</label>
+        <div class="settings-row">
+          <span id="ollama-status" class="status-pill status-pending" title="Checking Ollama status">Ollama: Checking</span>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <label for="pull-model-select">Download a model</label>
+        <div class="settings-row">
+          <select id="pull-model-select" class="model-pull-input"></select>
+          <button id="pull-model-btn" class="server-btn pull-btn" title="Download a model into Ollama">Download</button>
+        </div>
+        <div id="resource-summary" class="settings-note"></div>
+      </div>
+
+      <div class="settings-group">
+        <label>Installation</label>
+        <div class="settings-row">
+          <button id="install-btn" class="install-btn" hidden>Install app</button>
+        </div>
+      </div>
+
+      <div class="settings-group">
+        <label>Internet search</label>
+        <div class="settings-row">
+          <button id="internet-btn" class="internet-btn" title="Toggle web search">
+            🌐 Internet: OFF
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </div>

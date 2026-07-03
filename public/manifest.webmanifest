@@ -1,0 +1,18 @@
+{
+  "name": "Local AI Assistant",
+  "short_name": "Local AI",
+  "description": "Local AI chat app powered by Ollama.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#050b16",
+  "theme_color": "#08111f",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

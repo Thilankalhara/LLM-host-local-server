@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Local AI Assistant icon">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#16304d"/>
+      <stop offset="55%" stop-color="#08111f"/>
+      <stop offset="100%" stop-color="#0f223c"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#55d6ff"/>
+      <stop offset="100%" stop-color="#1fb8ff"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="128" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="160" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="10"/>
+  <circle cx="256" cy="256" r="112" fill="none" stroke="rgba(85,214,255,0.16)" stroke-width="10"/>
+  <path d="M256 130c-62.8 0-114 51.2-114 114s51.2 114 114 114 114-51.2 114-114-51.2-114-114-114Zm0 36c43 0 78 35 78 78s-35 78-78 78-78-35-78-78 35-78 78-78Z" fill="url(#accent)"/>
+  <path d="M256 186c-38.6 0-70 31.4-70 70s31.4 70 70 70 70-31.4 70-70-31.4-70-70-70Zm0 34c19.9 0 36 16.1 36 36s-16.1 36-36 36-36-16.1-36-36 16.1-36 36-36Z" fill="#08111f"/>
+</svg>

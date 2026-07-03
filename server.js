@@ -5,15 +5,22 @@ import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import https from 'https';
+import { spawn } from 'child_process';
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
 const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
 const ollama = new Ollama({ host: OLLAMA_HOST });
+const SERVER_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+const DEV_TUNNEL_DIR = path.join(process.cwd(), '.tools');
+const DEV_TUNNEL_EXE = path.join(DEV_TUNNEL_DIR, 'devtunnel.exe');
 // How long (seconds) to keep models loaded between requests to avoid cold starts
 const OLLAMA_KEEP_ALIVE = process.env.OLLAMA_KEEP_ALIVE
   ? parseInt(process.env.OLLAMA_KEEP_ALIVE, 10)
   : 3600; // default 1 hour
+const OLLAMA_CHECK_TIMEOUT_MS = process.env.OLLAMA_CHECK_TIMEOUT_MS
+  ? parseInt(process.env.OLLAMA_CHECK_TIMEOUT_MS, 10)
+  : 3000;
 // Default model to use (fast: deepseek-coder:1.3b, balanced: qwen2.5-coder:3b, powerful: qwen2.5-coder:7b)
 const DEFAULT_MODEL = process.env.DEFAULT_MODEL || 'deepseek-coder:1.3b';
 // How many memory items to include in the system prompt (keeps prompts small)
@@ -28,6 +35,10 @@ const MODEL_NUM_PREDICT = process.env.MODEL_NUM_PREDICT ? parseInt(process.env.M
 const CHAT_TIMEOUT_MS = process.env.CHAT_TIMEOUT_MS ? parseInt(process.env.CHAT_TIMEOUT_MS, 10) : 120000;
 // Track last used model to unload it when switching (freeing memory)
 let lastLoadedModel = null;
+let devTunnelProcess = null;
+let devTunnelUrl = '';
+let devTunnelState = 'stopped';
+let devTunnelInstalling = false;
 
 app.use(express.json());
 // Simple request logger to help debug 405/route issues
@@ -78,6 +89,29 @@ app.get('/api/models', async (req, res) => {
   }
 });
 
+app.post('/api/models/pull', async (req, res) => {
+  try {
+    const model = (req.body.model || '').trim();
+    if (!model) {
+      return res.status(400).json({ error: 'Model name is required' });
+    }
+
+    const stream = await ollama.pull({ model, stream: true });
+    let lastStatus = 'downloaded';
+
+    for await (const part of stream) {
+      if (part?.status) {
+        lastStatus = part.status;
+      }
+    }
+
+    res.json({ ok: true, model, status: lastStatus });
+  } catch (err) {
+    console.error('❌ /api/models/pull error:', err.message);
+    res.status(500).json({ error: formatOllamaError(err) });
+  }
+});
+
 function formatOllamaError(err) {
   const message = err?.message || 'Unknown Ollama error';
   if (/fetch failed|ECONNREFUSED|ENOTFOUND|ETIMEDOUT/i.test(message)) {
@@ -85,6 +119,185 @@ function formatOllamaError(err) {
   }
   return message;
 }
+
+function formatTunnelError(err) {
+  const message = err?.message || 'Unknown dev tunnel error';
+  if (/login|authenticate|authorization/i.test(message)) {
+    return 'Dev Tunnels needs you to sign in first. Run the devtunnel login flow once, then try hosting again.';
+  }
+  return message;
+}
+
+async function ensureDevTunnelBinary() {
+  if (fs.existsSync(DEV_TUNNEL_EXE)) {
+    return DEV_TUNNEL_EXE;
+  }
+
+  if (devTunnelInstalling) {
+    return DEV_TUNNEL_EXE;
+  }
+
+  devTunnelInstalling = true;
+  try {
+    await fs.promises.mkdir(DEV_TUNNEL_DIR, { recursive: true });
+    const response = await fetch('https://aka.ms/TunnelsCliDownload/win-x64');
+    if (!response.ok) {
+      throw new Error(`Failed to download Dev Tunnels CLI (${response.status})`);
+    }
+    const buffer = Buffer.from(await response.arrayBuffer());
+    await fs.promises.writeFile(DEV_TUNNEL_EXE, buffer);
+    return DEV_TUNNEL_EXE;
+  } finally {
+    devTunnelInstalling = false;
+  }
+}
+
+function extractDevTunnelUrl(text) {
+  const match = text.match(/https:\/\/[^\s]+devtunnels\.ms[^\s]*/i);
+  return match ? match[0].replace(/[)\],.]+$/g, '') : '';
+}
+
+function stopDevTunnel() {
+  if (devTunnelProcess && !devTunnelProcess.killed) {
+    devTunnelProcess.kill();
+  }
+  devTunnelProcess = null;
+  devTunnelUrl = '';
+  devTunnelState = 'stopped';
+}
+
+async function startDevTunnel() {
+  if (devTunnelProcess && !devTunnelProcess.killed) {
+    return { state: devTunnelState, url: devTunnelUrl, port: SERVER_PORT };
+  }
+
+  const devtunnelPath = await ensureDevTunnelBinary();
+
+  return new Promise((resolve, reject) => {
+    const args = ['host', '-p', String(SERVER_PORT), '--allow-anonymous'];
+    const child = spawn(devtunnelPath, args, {
+      cwd: process.cwd(),
+      windowsHide: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    devTunnelProcess = child;
+    devTunnelState = 'starting';
+    devTunnelUrl = '';
+
+    let settled = false;
+    let startupTimer = null;
+
+    const settle = (payload) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(startupTimer);
+      resolve(payload);
+    };
+
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(startupTimer);
+      devTunnelProcess = null;
+      devTunnelState = 'error';
+      reject(err);
+    };
+
+    child.stdout.on('data', (chunk) => {
+      const text = chunk.toString();
+      const foundUrl = extractDevTunnelUrl(text);
+      if (foundUrl) {
+        devTunnelUrl = foundUrl;
+        devTunnelState = 'running';
+        settle({ state: 'running', url: devTunnelUrl, port: SERVER_PORT, output: text.trim() });
+      }
+    });
+
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      if (/error|failed|login|auth/i.test(text)) {
+        devTunnelState = 'error';
+      }
+    });
+
+    child.on('error', fail);
+    child.on('exit', (code) => {
+      if (devTunnelProcess === child) {
+        devTunnelProcess = null;
+      }
+      if (!settled && code !== 0) {
+        fail(new Error(`Dev Tunnels exited with code ${code}`));
+      }
+      if (devTunnelState === 'running') {
+        devTunnelState = 'stopped';
+        devTunnelUrl = '';
+      }
+    });
+
+    startupTimer = setTimeout(() => {
+      settle({ state: devTunnelState, url: devTunnelUrl, port: SERVER_PORT, output: 'Dev tunnel is starting...' });
+    }, 5000);
+  });
+}
+
+app.get('/api/tunnel/status', (req, res) => {
+  res.json({
+    state: devTunnelState,
+    url: devTunnelUrl,
+    port: SERVER_PORT,
+    installed: fs.existsSync(DEV_TUNNEL_EXE),
+  });
+});
+
+app.post('/api/tunnel/start', async (req, res) => {
+  try {
+    const result = await startDevTunnel();
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: formatTunnelError(err) });
+  }
+});
+
+app.post('/api/tunnel/stop', (req, res) => {
+  stopDevTunnel();
+  res.json({ ok: true });
+});
+
+async function fetchJsonWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ── Ollama status ───────────────────────────────────────
+app.get('/api/ollama/status', async (req, res) => {
+  try {
+    const versionUrl = new URL('/api/version', OLLAMA_HOST).toString();
+    const versionData = await fetchJsonWithTimeout(versionUrl, OLLAMA_CHECK_TIMEOUT_MS);
+
+    res.json({
+      running: true,
+      host: OLLAMA_HOST,
+      version: versionData.version || null,
+    });
+  } catch (err) {
+    res.status(503).json({
+      running: false,
+      host: OLLAMA_HOST,
+      error: formatOllamaError(err),
+    });
+  }
+});
 
 // ── Web search via DuckDuckGo (no API key needed) ────────
 function webSearch(query) {
@@ -418,4 +631,4 @@ app.post('/chat', upload.array('files', 10), async (req, res) => {
 // Serve static assets after API routes to avoid accidental method conflicts
 app.use(express.static('public'));
 
-app.listen(3000, () => console.log('✅ Server running at http://localhost:3000'));
+app.listen(SERVER_PORT, () => console.log(`✅ Server running at http://localhost:${SERVER_PORT}`));
