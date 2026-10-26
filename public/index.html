@@ -132,6 +132,12 @@
           <span id="ollama-status" class="status-pill status-pending" title="Checking Ollama status">Ollama: Checking</span>
           <button id="install-ollama-btn" class="server-btn host-btn" type="button" title="Open Ollama download page">Install Ollama</button>
         </div>
+        <label for="ollama-path">Custom Ollama path (optional)</label>
+        <div class="settings-row">
+          <input id="ollama-path" class="server-url" type="text" placeholder="Path to ollama.exe" autocomplete="off">
+          <button id="save-ollama-path-btn" class="server-btn connect-btn" type="button">Save path</button>
+        </div>
+        <div class="settings-note">Example: E:\Ollama\ollama.exe</div>
       </div>
 
       <div class="settings-group">

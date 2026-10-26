@@ -4,7 +4,7 @@
 ![Windows](https://img.shields.io/badge/platform-Windows-0078D6?style=for-the-badge&logo=windows)
 ![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)
 ![Ollama](https://img.shields.io/badge/powered%20by-Ollama-black?style=for-the-badge)
-[![Latest Release](https://img.shields.io/badge/latest%20release-v1.0.0-2ea44f?style=for-the-badge)](https://github.com/Thilankalhara/LLM-host-local-server/releases/tag/v1.0.0)
+[![Latest Release](https://img.shields.io/badge/latest%20release-v1.0.3-2ea44f?style=for-the-badge)](https://github.com/Thilankalhara/LLM-host-local-server/releases/tag/v1.0.3)
 [![Windows Installer](https://img.shields.io/badge/download-Windows%20Installer-107C10?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Thilankalhara/LLM-host-local-server/releases/latest)
 
 A privacy-first local AI chat application powered by [Ollama](https://ollama.com) and Express.js.
@@ -77,6 +77,11 @@ project/
 ### Step 1 — Install Ollama
 
 Download from https://ollama.com/download and install it.
+
+The app automatically finds Ollama on Windows through the system `PATH` and common
+installation folders, then starts `ollama serve` when the local API is not already running.
+If Ollama is installed in a custom folder, set `OLLAMA_EXECUTABLE` to the full path of
+`ollama.exe`. Set `OLLAMA_AUTO_START=false` if you do not want the app to start Ollama.
 
 ### Step 2 — Pull an AI model
 
@@ -289,6 +294,7 @@ npm pkg set type="module"
 
 **No AI response / model error**
 - Check Ollama is running: `ollama serve`
+- Verify Ollama responds in PowerShell: `Invoke-WebRequest http://127.0.0.1:11434/api/tags`
 - Check model is installed: `ollama list`
 - Make sure model name in `server.js` matches exactly
 
@@ -305,6 +311,7 @@ npm pkg set type="module"
 - Open Settings and check that Ollama is running
 - Try downloading a model directly after connecting to the local server
 - Make sure the browser can reach the server at `http://localhost:3000`
+- If the installed app was open during an update, close and reopen it so the latest Ollama status check is loaded
 
 **"Could not create chat: Server error (405)"**
 

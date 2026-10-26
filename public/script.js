@@ -12,6 +12,8 @@ const installBtn = document.getElementById('install-btn');
 const settingsBtn = document.getElementById('settings-btn');
 const ollamaStatus = document.getElementById('ollama-status');
 const installOllamaBtn = document.getElementById('install-ollama-btn');
+const ollamaPathInput = document.getElementById('ollama-path');
+const saveOllamaPathBtn = document.getElementById('save-ollama-path-btn');
 const tunnelStatus = document.getElementById('tunnel-status');
 const serverUrlInput = document.getElementById('server-url');
 const shareUrlOutput = document.getElementById('share-url-output');
@@ -91,6 +93,7 @@ recommendedModelBtn.addEventListener('click', async () => {
 installOllamaBtn.addEventListener('click', () => {
   window.open('https://ollama.com/download', '_blank', 'noopener,noreferrer');
 });
+saveOllamaPathBtn.addEventListener('click', saveOllamaPath);
 pullModelSelect.addEventListener('change', () => {
   const selected = pullModelSelect.value;
   const selectedOption = pullModelSelect.selectedOptions[0];
@@ -134,6 +137,10 @@ bootstrapApp();
 
 async function bootstrapApp() {
   registerServiceWorker();
+  ollamaPathInput.value = localStorage.getItem('ollamaExecutablePath') || '';
+  await configureOllamaPath().catch((err) => {
+    console.warn('Custom Ollama path could not be configured:', err.message);
+  });
   await Promise.allSettled([
     refreshOllamaStatus(),
     refreshTunnelStatus(),
@@ -146,6 +153,39 @@ async function bootstrapApp() {
   hideSplashScreen();
   setInterval(refreshOllamaStatus, 15000);
   setInterval(refreshTunnelStatus, 10000);
+}
+
+async function configureOllamaPath() {
+  const executable = ollamaPathInput.value.trim();
+  if (!executable) return;
+
+  const res = await apiFetch('/api/ollama/config', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ executable }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
+}
+
+async function saveOllamaPath() {
+  const executable = ollamaPathInput.value.trim();
+  try {
+    const res = await apiFetch('/api/ollama/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ executable }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    localStorage.setItem('ollamaExecutablePath', executable);
+    await refreshOllamaStatus();
+    alert(executable ? 'Custom Ollama path saved.' : 'Custom Ollama path cleared.');
+  } catch (err) {
+    alert(`Could not save Ollama path: ${err.message}`);
+  }
 }
 
 function registerServiceWorker() {

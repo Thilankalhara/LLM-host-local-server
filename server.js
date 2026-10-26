@@ -4,7 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
 import https from 'https';
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
@@ -26,6 +26,99 @@ function normalizeOllamaHost(rawHost) {
 }
 
 const OLLAMA_HOST = normalizeOllamaHost(process.env.OLLAMA_HOST);
+const OLLAMA_AUTO_START = process.env.OLLAMA_AUTO_START !== 'false';
+let ollamaExecutableOverride = process.env.OLLAMA_EXECUTABLE || '';
+let ollamaStartPromise = null;
+
+function isLocalOllamaHost() {
+  try {
+    const hostname = new URL(OLLAMA_HOST).hostname;
+    return hostname === '127.0.0.1' || hostname === 'localhost' || hostname === '::1';
+  } catch {
+    return false;
+  }
+}
+
+function findOllamaExecutable() {
+  const driveInstallations = Array.from({ length: 26 }, (_, index) => (
+    path.join(`${String.fromCharCode(65 + index)}:`, 'Ollama', 'ollama.exe')
+  ));
+  const candidates = [
+    ollamaExecutableOverride,
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'Programs', 'Ollama', 'ollama.exe'),
+    process.env.ProgramFiles && path.join(process.env.ProgramFiles, 'Ollama', 'ollama.exe'),
+    process.env['ProgramFiles(x86)'] && path.join(process.env['ProgramFiles(x86)'], 'Ollama', 'ollama.exe'),
+    ...driveInstallations,
+  ].filter(Boolean);
+
+  if (process.platform === 'win32') {
+    const result = spawnSync('where.exe', ['ollama.exe'], { encoding: 'utf8', windowsHide: true });
+    if (result.status === 0) {
+      candidates.unshift(...result.stdout.split(/\r?\n/).map(line => line.trim()).filter(Boolean));
+    }
+  }
+
+  return candidates.find(candidate => {
+    try {
+      return fs.existsSync(candidate);
+    } catch {
+      return false;
+    }
+  }) || null;
+}
+
+function setOllamaExecutable(executable) {
+  const value = typeof executable === 'string' ? executable.trim() : '';
+  if (value && !fs.existsSync(value)) {
+    throw new Error(`Ollama executable was not found at ${value}`);
+  }
+  if (value && path.basename(value).toLowerCase() !== 'ollama.exe') {
+    throw new Error('Custom Ollama path must point to ollama.exe');
+  }
+  ollamaExecutableOverride = value;
+}
+
+async function ensureOllamaRunning() {
+  if (!OLLAMA_AUTO_START || !isLocalOllamaHost()) return;
+  if (ollamaStartPromise) return ollamaStartPromise;
+
+  ollamaStartPromise = (async () => {
+    try {
+      await fetchJsonWithTimeout(`${OLLAMA_HOST}/api/tags`, OLLAMA_CHECK_TIMEOUT_MS);
+      return;
+    } catch {
+      // Start Ollama below when the local API is not already available.
+    }
+
+    const executable = findOllamaExecutable();
+    if (!executable) {
+      throw new Error('Ollama is not installed or could not be located. Install it from https://ollama.com/download.');
+    }
+
+    const child = spawn(executable, ['serve'], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    child.unref();
+
+    const deadline = Date.now() + OLLAMA_CHECK_TIMEOUT_MS * 3;
+    while (Date.now() < deadline) {
+      try {
+        await fetchJsonWithTimeout(`${OLLAMA_HOST}/api/tags`, OLLAMA_CHECK_TIMEOUT_MS);
+        return;
+      } catch {
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+    }
+
+    throw new Error(`Ollama was found at ${executable}, but its local API did not start in time.`);
+  })().finally(() => {
+    ollamaStartPromise = null;
+  });
+
+  return ollamaStartPromise;
+}
 
 async function readOllamaJsonResponse(response) {
   const text = await response.text();
@@ -434,16 +527,45 @@ async function fetchJsonWithTimeout(url, timeoutMs) {
   }
 }
 
-// ── Ollama status ───────────────────────────────────────
-app.get('/api/ollama/status', async (req, res) => {
+async function checkOllamaStatus() {
+  const tagsUrl = new URL('/api/tags', OLLAMA_HOST).toString();
+  const tagsData = await fetchJsonWithTimeout(tagsUrl, OLLAMA_CHECK_TIMEOUT_MS);
+  let version = null;
+
   try {
     const versionUrl = new URL('/api/version', OLLAMA_HOST).toString();
     const versionData = await fetchJsonWithTimeout(versionUrl, OLLAMA_CHECK_TIMEOUT_MS);
+    version = typeof versionData.version === 'string' ? versionData.version : null;
+  } catch (err) {
+    console.warn(`⚠️ Ollama version check failed; tags endpoint is healthy: ${err.message}`);
+  }
+
+  return {
+    version,
+    modelCount: Array.isArray(tagsData.models) ? tagsData.models.length : 0,
+  };
+}
+
+app.post('/api/ollama/config', (req, res) => {
+  try {
+    setOllamaExecutable(req.body.executable);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ── Ollama status ───────────────────────────────────────
+app.get('/api/ollama/status', async (req, res) => {
+  try {
+    await ensureOllamaRunning();
+    const status = await checkOllamaStatus();
 
     res.json({
       running: true,
       host: OLLAMA_HOST,
-      version: versionData.version || null,
+      version: status.version,
+      modelCount: status.modelCount,
     });
   } catch (err) {
     res.status(503).json({
