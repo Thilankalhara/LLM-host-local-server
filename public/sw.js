@@ -1,4 +1,4 @@
-const CACHE_NAME = 'local-ai-assistant-v1';
+const CACHE_NAME = 'local-ai-assistant-v2';
 const APP_ASSETS = [
   '/',
   '/index.html',
@@ -24,9 +24,14 @@ self.addEventListener('activate', (event) => {
         }
         return null;
       })
-    ))
+    )).then(() => self.clients.claim())
   );
-  self.clients.claim();
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('fetch', (event) => {

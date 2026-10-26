@@ -2,6 +2,8 @@ const { app, BrowserWindow } = require('electron');
 const path = require('path');
 const { fork } = require('child_process');
 
+const APP_PORT = process.env.PORT || '8080';
+
 let backendProcess = null;
 let mainWindow = null;
 
@@ -12,6 +14,7 @@ function startBackend() {
     env: {
       ...process.env,
       ELECTRON_RUN_AS_NODE: '1',
+      PORT: APP_PORT,
     },
   });
 }
@@ -24,13 +27,14 @@ function createWindow() {
     minHeight: 760,
     backgroundColor: '#050b16',
     title: 'Local AI Assistant',
+    icon: path.join(__dirname, 'build', 'icon.ico'),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
 
-  mainWindow.loadURL('http://localhost:3000');
+  mainWindow.loadURL(`http://localhost:${APP_PORT}`);
   mainWindow.on('closed', () => {
     mainWindow = null;
   });

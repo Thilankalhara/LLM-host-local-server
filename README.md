@@ -1,7 +1,27 @@
 # 🤖 Local AI Assistant
 
-A fully local AI chat app powered by [Ollama](https://ollama.com) and Express.js.  
-Runs 100% on your PC — no internet required, no API costs, total privacy.
+![MIT License](https://img.shields.io/badge/license-MIT-2ea44f?style=for-the-badge)
+![Windows](https://img.shields.io/badge/platform-Windows-0078D6?style=for-the-badge&logo=windows)
+![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)
+![Ollama](https://img.shields.io/badge/powered%20by-Ollama-black?style=for-the-badge)
+[![Latest Release](https://img.shields.io/github/v/release/Thilankalhara/LLM-host-local-server?style=for-the-badge&label=latest%20release)](https://github.com/Thilankalhara/LLM-host-local-server/releases/latest)
+[![Windows Installer](https://img.shields.io/badge/download-Windows%20Installer-107C10?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Thilankalhara/LLM-host-local-server/releases/latest)
+
+A privacy-first local AI chat application powered by [Ollama](https://ollama.com) and Express.js.
+Run conversations, memory, file uploads, model management, and optional public tunnelling
+on your own Windows PC — with no API costs and no required cloud service.
+
+![Local AI Assistant screenshot](ScreenShots/local-ai-assistant.png)
+
+## Download for Windows
+
+Download the latest installer from the
+[GitHub Releases page](https://github.com/Thilankalhara/LLM-host-local-server/releases/latest).
+The installer creates Start Menu and desktop shortcuts and lets you choose the installation
+directory. Ollama must be installed separately because the AI model runs locally on your PC.
+
+> **Windows installer:** The release asset is named `Local AI Assistant-<version>-x64.exe`.
+> For portable use, download the portable `.exe` asset when it is available.
 
 ---
 
@@ -77,22 +97,16 @@ Put all files in a folder. Make sure the structure matches the one above.
 Open PowerShell **inside your project folder** and run:
 
 ```powershell
-npm install ollama express multer
+npm install
 ```
 
-### Step 5 — Set module type
-
-```powershell
-npm pkg set type="module"
-```
-
-### Step 6 — Create data folder
+### Step 5 — Create data folder
 
 ```powershell
 mkdir data
 ```
 
-### Step 7 — Start the server
+### Step 6 — Start the server
 
 You can start the server in either of these ways:
 
@@ -108,38 +122,77 @@ node server.js
 
 You should see:
 ```
-✅ Server running at http://localhost:3000
+✅ Server running at http://localhost:8080
 ```
 
-### Step 8 — Open in browser
+### Step 7 — Open in browser
 
-Go to: **http://localhost:3000**
+Go to: **http://localhost:8080**
 
 Click **⚙️ Settings** to open the panel for host, connect, download, and install actions.
 
-### Windows EXE build
+### Windows installer build
 
-Run:
+On Windows, build the NSIS installer and portable package with:
 
 ```powershell
 npm install
-npm run dist
+npm run dist:installer
 ```
 
-That creates a portable Windows `.exe` in [dist/LocalAIAssistant.exe](dist/LocalAIAssistant.exe).
+The installer is written to `dist/Local AI Assistant-<version>-x64.exe`.
+To build both the installer and portable package, run `npm run dist`.
 
 ---
 
 ## ⚙️ Settings Panel
 
-The **Settings** panel contains:
+The **Settings** panel is the control center for the app. It lets the user do everything from one place:
 
 - Connect to a local server or paste a tunnel URL
 - Host a public tunnel with Dev Tunnels
-- See Ollama status
+- See whether Ollama is running or missing
 - Download recommended or installed models
-- Install the app
+- Install the app as a desktop/web app
 - Toggle web search
+
+### How each part works
+
+#### 1) Connect to a server
+The user can paste a server URL into the field and click **Connect**. This tells the browser where the backend API is running.
+
+- If the app is running locally, it usually auto-detects the normal local API URL.
+- If the user is connecting to a remote machine or a public tunnel, they paste that URL here instead.
+
+#### 2) Host a public tunnel
+Click **Host** to start a secure public tunnel through Dev Tunnels. The app then exposes the local server through a public URL so someone else can access it.
+
+- This is useful for demos or remote access.
+- The app tracks the tunnel state and shows whether it is live, starting, or offline.
+
+#### 3) Ollama status
+The panel checks whether Ollama is running on the machine. If it is not detected, the app shows a warning and can point the user to the Ollama download page.
+
+- This prevents the user from guessing which model to install.
+- It also shows whether the local AI backend is reachable.
+
+#### 4) Download models
+The app lists:
+
+- installed models already on the machine
+- recommended models for the current device
+- all supported models
+
+It uses the hardware profile (RAM and CPU cores) to suggest a good default model so the user does not have to guess.
+
+#### 5) Install the app
+This uses the browser install prompt to add the app to the Start menu / desktop / home screen if supported.
+
+- On a browser, it behaves like a PWA install.
+- On a packaged desktop build, it can also behave like a desktop application install.
+
+#### 6) Internet search toggle
+The **Internet** button lets the user enable web search while chatting. When enabled, the app adds search results to the system prompt so the answer can use current information.
 
 The download dropdown automatically groups:
 
@@ -263,8 +316,8 @@ This error occurs when the browser blocks POST requests to `/api/chats` due to C
 
 **If you still see this error after a fresh install:**
 
-1. Make sure you're opening the app at **http://localhost:3000** (not `file://` or another origin)
-2. Make sure `npm start` is running (see terminal for `✅ Server running at http://localhost:3000`)
+1. Make sure you're opening the app at **http://localhost:8080** (not `file://` or another origin)
+2. Make sure `npm start` is running (see terminal for `✅ Server running at http://localhost:8080`)
 3. Hard-refresh the browser: `Ctrl+Shift+R` (Windows/Linux) or `Cmd+Shift+R` (Mac)
 4. Check DevTools (F12) → Network tab → find the `/api/chats` request → paste the **Status**, **Request/Response Headers**, and **Response body** in an issue
 

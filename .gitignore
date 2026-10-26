@@ -5,3 +5,4 @@ package-lock.json
 uploads/
 data/chats.json
 data/memory.json
+dist/

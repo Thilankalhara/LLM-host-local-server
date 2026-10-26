@@ -11,12 +11,16 @@ const splashScreen = document.getElementById('splash-screen');
 const installBtn = document.getElementById('install-btn');
 const settingsBtn = document.getElementById('settings-btn');
 const ollamaStatus = document.getElementById('ollama-status');
+const installOllamaBtn = document.getElementById('install-ollama-btn');
 const tunnelStatus = document.getElementById('tunnel-status');
 const serverUrlInput = document.getElementById('server-url');
+const shareUrlOutput = document.getElementById('share-url-output');
+const copyUrlBtn = document.getElementById('copy-url-btn');
 const connectServerBtn = document.getElementById('connect-server-btn');
 const hostBtn = document.getElementById('host-btn');
 const pullModelSelect = document.getElementById('pull-model-select');
 const pullModelBtn = document.getElementById('pull-model-btn');
+const recommendedModelBtn = document.getElementById('recommended-model-btn');
 const resourceSummary = document.getElementById('resource-summary');
 const settingsModal = document.getElementById('settings-modal');
 const closeSettingsBtn = document.getElementById('close-settings-btn');
@@ -72,8 +76,21 @@ connectServerBtn.addEventListener('click', connectToServer);
 serverUrlInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') connectToServer();
 });
+copyUrlBtn.addEventListener('click', copyShareableUrl);
 hostBtn.addEventListener('click', hostPublicTunnel);
 pullModelBtn.addEventListener('click', pullModel);
+recommendedModelBtn.addEventListener('click', async () => {
+  const recommendedName = getRecommendedModelName();
+  if (!recommendedName) return;
+  pullModelSelect.value = recommendedName;
+  const selectedOption = pullModelSelect.selectedOptions[0];
+  pullModelBtn.disabled = selectedOption?.dataset.installed === 'true';
+  updateResourceSummary(recommendedName);
+  await pullModel();
+});
+installOllamaBtn.addEventListener('click', () => {
+  window.open('https://ollama.com/download', '_blank', 'noopener,noreferrer');
+});
 pullModelSelect.addEventListener('change', () => {
   const selected = pullModelSelect.value;
   const selectedOption = pullModelSelect.selectedOptions[0];
@@ -132,11 +149,19 @@ async function bootstrapApp() {
 }
 
 function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js').catch((err) => {
-      console.warn('Service worker registration failed:', err);
-    });
-  }
+  if (!('serviceWorker' in navigator)) return;
+
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    return Promise.all(registrations.map((registration) => registration.unregister()));
+  }).then(() => {
+    return navigator.serviceWorker.register('/sw.js', { scope: '/' });
+  }).then((registration) => {
+    if (registration.waiting) {
+      registration.waiting.postMessage({ type: 'SKIP_WAITING' });
+    }
+  }).catch((err) => {
+    console.warn('Service worker registration failed:', err);
+  });
 }
 
 function hideSplashScreen() {
@@ -170,9 +195,55 @@ function normalizeApiBaseUrl(value) {
   const trimmed = value.trim();
   if (!trimmed) return window.location.origin;
   try {
-    return new URL(trimmed).origin;
+    const normalized = trimmed.replace(/\/+$/, '');
+    return new URL(normalized).origin;
   } catch (_) {
     return window.location.origin;
+  }
+}
+
+function getEffectiveShareUrl() {
+  const value = (shareUrlOutput.value || serverUrlInput.value || apiBaseUrl || '').trim();
+  if (!value) return '';
+
+  try {
+    const url = new URL(value.includes('://') ? value : `http://${value}`);
+    return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+  } catch {
+    return value.replace(/\/+$/, '');
+  }
+}
+
+function syncShareableUrlField(value = '') {
+  const candidate = (value || getEffectiveShareUrl() || apiBaseUrl || '').trim();
+  if (!candidate) {
+    shareUrlOutput.value = '';
+    return;
+  }
+
+  try {
+    const url = new URL(candidate.includes('://') ? candidate : `http://${candidate}`);
+    const normalized = `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+    shareUrlOutput.value = normalized;
+  } catch {
+    shareUrlOutput.value = candidate.replace(/\/+$/, '');
+  }
+}
+
+async function copyShareableUrl() {
+  const value = getEffectiveShareUrl();
+  if (!value) {
+    alert('No URL is available to copy yet. Connect to a server or start a public tunnel first.');
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(value);
+    alert('URL copied: ' + value);
+  } catch (err) {
+    shareUrlOutput.select();
+    document.execCommand('copy');
+    alert('URL copied: ' + value);
   }
 }
 
@@ -186,6 +257,7 @@ function apiFetch(pathname, options) {
 
 function syncServerUrlField() {
   serverUrlInput.value = apiBaseUrl === window.location.origin ? '' : apiBaseUrl;
+  syncShareableUrlField(serverUrlInput.value || apiBaseUrl);
 }
 
 function setApiBaseUrl(nextUrl) {
@@ -222,6 +294,7 @@ async function hostPublicTunnel() {
 
     if (data.url) {
       serverUrlInput.value = data.url;
+      syncShareableUrlField(data.url);
       tunnelStatus.textContent = 'Tunnel: Ready';
       tunnelStatus.className = 'status-pill status-online tunnel-status';
       tunnelStatus.title = data.url;
@@ -256,6 +329,7 @@ async function refreshTunnelStatus() {
       if (!serverUrlInput.value.trim() && data.url) {
         serverUrlInput.value = data.url;
       }
+      syncShareableUrlField(data.url);
     } else if (data.state === 'starting') {
       tunnelStatus.textContent = 'Tunnel: Starting';
       tunnelStatus.className = 'status-pill status-warn tunnel-status';
@@ -337,6 +411,12 @@ function getRecommendedModels(profile) {
     high: ['llama3.1:8b', 'qwen2.5-coder:7b', 'gemma2:9b'],
   };
   return recommendedByTier[profile.tier] || recommendedByTier.medium;
+}
+
+function getRecommendedModelName() {
+  const profile = getDeviceProfile();
+  const recommended = getRecommendedModels(profile);
+  return recommended[0] || 'llama3.2:3b';
 }
 
 function updateResourceSummary(selectedModel = '') {
@@ -434,16 +514,19 @@ async function refreshOllamaStatus() {
       ollamaStatus.textContent = data.version ? `Ollama: Running ${data.version}` : 'Ollama: Running';
       ollamaStatus.className = 'status-pill status-online';
       ollamaStatus.title = `Connected to Ollama at ${data.host}`;
+      installOllamaBtn.style.display = 'none';
     } else {
-      ollamaStatus.textContent = 'Ollama: Offline';
+      ollamaStatus.textContent = 'Ollama: Not detected';
       ollamaStatus.className = 'status-pill status-offline';
       ollamaStatus.title = data.error || 'Ollama is not reachable';
+      installOllamaBtn.style.display = 'inline-flex';
     }
   } catch (err) {
     ollamaRunning = false;
-    ollamaStatus.textContent = 'Ollama: Offline';
+    ollamaStatus.textContent = 'Ollama: Not detected';
     ollamaStatus.className = 'status-pill status-offline';
     ollamaStatus.title = err.message || 'Ollama is not reachable';
+    installOllamaBtn.style.display = 'inline-flex';
   }
 }
 
@@ -455,7 +538,8 @@ async function loadModels() {
     const models = await res.json();
     modelSelect.innerHTML = '';
     if (models.length === 0) {
-      modelSelect.innerHTML = '<option value="">No models found</option>';
+      const suggested = getRecommendedModelName();
+      modelSelect.innerHTML = `<option value="">No models installed — recommended: ${suggested}</option>`;
       return;
     }
     models.forEach(name => {
@@ -466,7 +550,8 @@ async function loadModels() {
     });
   } catch (err) {
     console.error('loadModels error:', err);
-    modelSelect.innerHTML = '<option value="">⚠️ Ollama not running</option>';
+    const suggested = getRecommendedModelName();
+    modelSelect.innerHTML = `<option value="">⚠️ Ollama not running — recommended: ${suggested}</option>`;
   }
 }
 
@@ -733,31 +818,42 @@ async function send() {
       return;
     }
 
+    if (!res.body || typeof res.body.getReader !== 'function') {
+      throw new Error('The chat response did not include a readable stream. Please refresh and try again.');
+    }
+    if (res.body.locked) {
+      throw new Error('The chat response stream is already locked. Please refresh the page and try again.');
+    }
+
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
 
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const data = line.slice(6).trim();
-        if (data === '[DONE]') { await loadChatList(); break; }
-        try {
-          const parsed = JSON.parse(data);
-          if (parsed.error) { botBubble.textContent = '❌ ' + parsed.error; return; }
-          if (parsed.token) {
-            fullText += parsed.token;
-            renderBotMessage(botBubble, fullText);
-            chatBox.scrollTop = chatBox.scrollHeight;
-          }
-        } catch (_) {}
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') { await loadChatList(); break; }
+          try {
+            const parsed = JSON.parse(data);
+            if (parsed.error) { botBubble.textContent = '❌ ' + parsed.error; return; }
+            if (parsed.token) {
+              fullText += parsed.token;
+              renderBotMessage(botBubble, fullText);
+              chatBox.scrollTop = chatBox.scrollHeight;
+            }
+          } catch (_) {}
+        }
       }
+    } finally {
+      try { reader.releaseLock(); } catch (_) {}
     }
 
   } catch (err) {

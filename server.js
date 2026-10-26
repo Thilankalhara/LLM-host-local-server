@@ -1,4 +1,3 @@
-import { Ollama } from 'ollama';
 import express from 'express';
 import multer from 'multer';
 import fs from 'fs';
@@ -9,9 +8,165 @@ import { spawn } from 'child_process';
 
 const app = express();
 const upload = multer({ dest: 'uploads/' });
-const OLLAMA_HOST = process.env.OLLAMA_HOST || 'http://127.0.0.1:11434';
-const ollama = new Ollama({ host: OLLAMA_HOST });
-const SERVER_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+function normalizeOllamaHost(rawHost) {
+  const fallbackHost = 'http://127.0.0.1:11434';
+  const value = (rawHost || fallbackHost).trim();
+
+  if (!value) {
+    return fallbackHost;
+  }
+
+  try {
+    const url = new URL(value.includes('://') ? value : `http://${value}`);
+    return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+  } catch {
+    return fallbackHost;
+  }
+}
+
+const OLLAMA_HOST = normalizeOllamaHost(process.env.OLLAMA_HOST);
+
+async function readOllamaJsonResponse(response) {
+  const text = await response.text();
+  if (!text) {
+    return {};
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { raw: text };
+  }
+}
+
+async function* streamOllamaResponse(response) {
+  if (!response || !response.body || typeof response.body.getReader !== 'function') {
+    return;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || '';
+
+      for (const rawLine of lines) {
+        const line = rawLine.trim();
+        if (!line) continue;
+
+        const payload = line.startsWith('data:') ? line.slice(5).trim() : line;
+        if (!payload || payload === '[DONE]') continue;
+
+        try {
+          const parsed = JSON.parse(payload);
+          if (parsed && typeof parsed === 'object') {
+            yield parsed;
+          }
+        } catch {
+          // Ignore partial or malformed NDJSON fragments while streaming.
+        }
+      }
+    }
+
+    const finalChunk = buffer.trim();
+    if (finalChunk) {
+      const payload = finalChunk.startsWith('data:') ? finalChunk.slice(5).trim() : finalChunk;
+      if (payload && payload !== '[DONE]') {
+        try {
+          const parsed = JSON.parse(payload);
+          if (parsed && typeof parsed === 'object') {
+            yield parsed;
+          }
+        } catch {
+          // Ignore malformed trailing fragments.
+        }
+      }
+    }
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+}
+
+const ollama = {
+  async list() {
+    const response = await fetch(`${OLLAMA_HOST}/api/tags`);
+    const payload = await readOllamaJsonResponse(response);
+    if (!response.ok) {
+      throw new Error(payload.error || `Ollama request failed with status ${response.status}`);
+    }
+
+    return {
+      models: Array.isArray(payload.models) ? payload.models.map((model) => ({ name: model.name })) : [],
+    };
+  },
+
+  async pull({ model, stream = true }) {
+    const response = await fetch(`${OLLAMA_HOST}/api/pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: model, stream }),
+    });
+
+    if (!response.ok) {
+      const payload = await readOllamaJsonResponse(response);
+      throw new Error(payload.error || `Ollama pull failed with status ${response.status}`);
+    }
+
+    if (!stream) {
+      return await readOllamaJsonResponse(response);
+    }
+
+    return streamOllamaResponse(response);
+  },
+
+  async generate({ model, prompt, keep_alive, options, stream = true }) {
+    const response = await fetch(`${OLLAMA_HOST}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, prompt, keep_alive, stream, options }),
+    });
+
+    if (!response.ok) {
+      const payload = await readOllamaJsonResponse(response);
+      throw new Error(payload.error || `Ollama generate failed with status ${response.status}`);
+    }
+
+    if (!stream) {
+      return await readOllamaJsonResponse(response);
+    }
+
+    return streamOllamaResponse(response);
+  },
+
+  async chat({ model, messages, keep_alive, options, stream = true }) {
+    const response = await fetch(`${OLLAMA_HOST}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, messages, keep_alive, stream, options }),
+    });
+
+    if (!response.ok) {
+      const payload = await readOllamaJsonResponse(response);
+      throw new Error(payload.error || `Ollama chat failed with status ${response.status}`);
+    }
+
+    if (!stream) {
+      return await readOllamaJsonResponse(response);
+    }
+
+    return streamOllamaResponse(response);
+  },
+};
+
+const SERVER_PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
 const DEV_TUNNEL_DIR = path.join(process.cwd(), '.tools');
 const DEV_TUNNEL_EXE = path.join(DEV_TUNNEL_DIR, 'devtunnel.exe');
 // How long (seconds) to keep models loaded between requests to avoid cold starts
@@ -589,6 +744,7 @@ app.post('/chat', upload.array('files', 10), async (req, res) => {
       clearTimeout(timeoutHandle);
     } catch (streamErr) {
       console.error('❌ Stream error:', streamErr.message || streamErr);
+      console.error('❌ Stream stack:', streamErr.stack || 'No stack trace available');
       const errorMsg = streamErr.message?.includes('memory') 
         ? '❌ Ollama out of memory. Try a smaller model or close other apps.'
         : `❌ Ollama error: ${formatOllamaError(streamErr)}`;

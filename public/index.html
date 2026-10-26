@@ -111,6 +111,14 @@
       </div>
 
       <div class="settings-group">
+        <label for="share-url-output">Shareable app URL</label>
+        <div class="settings-row">
+          <input id="share-url-output" class="server-url" type="text" readonly placeholder="Generated URL will appear here" autocomplete="off">
+          <button id="copy-url-btn" class="server-btn connect-btn" type="button" title="Copy the current app URL for mobile use">Copy</button>
+        </div>
+      </div>
+
+      <div class="settings-group">
         <label>Public hosting</label>
         <div class="settings-row">
           <span id="tunnel-status" class="status-pill status-pending tunnel-status" title="Dev tunnel is not running">Tunnel: Off</span>
@@ -122,6 +130,7 @@
         <label>Ollama status</label>
         <div class="settings-row">
           <span id="ollama-status" class="status-pill status-pending" title="Checking Ollama status">Ollama: Checking</span>
+          <button id="install-ollama-btn" class="server-btn host-btn" type="button" title="Open Ollama download page">Install Ollama</button>
         </div>
       </div>
 
@@ -130,6 +139,9 @@
         <div class="settings-row">
           <select id="pull-model-select" class="model-pull-input"></select>
           <button id="pull-model-btn" class="server-btn pull-btn" title="Download a model into Ollama">Download</button>
+        </div>
+        <div class="settings-row">
+          <button id="recommended-model-btn" class="server-btn connect-btn" type="button" title="Download the recommended model for this device">Use recommended model</button>
         </div>
         <div id="resource-summary" class="settings-note"></div>
       </div>
