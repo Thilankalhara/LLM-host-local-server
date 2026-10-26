@@ -4,7 +4,7 @@
 ![Windows](https://img.shields.io/badge/platform-Windows-0078D6?style=for-the-badge&logo=windows)
 ![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)
 ![Ollama](https://img.shields.io/badge/powered%20by-Ollama-black?style=for-the-badge)
-[![Latest Release](https://img.shields.io/badge/latest%20release-v1.0.5-2ea44f?style=for-the-badge)](https://github.com/Thilankalhara/LLM-host-local-server/releases/tag/v1.0.5)
+[![Latest Release](https://img.shields.io/badge/latest%20release-v1.0.6-2ea44f?style=for-the-badge)](https://github.com/Thilankalhara/LLM-host-local-server/releases/tag/v1.0.6)
 [![Windows Installer](https://img.shields.io/badge/download-Windows%20Installer-107C10?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Thilankalhara/LLM-host-local-server/releases/latest)
 
 A privacy-first local AI chat application powered by [Ollama](https://ollama.com) and Express.js.
@@ -80,8 +80,44 @@ Download from https://ollama.com/download and install it.
 
 The app automatically finds Ollama on Windows through the system `PATH` and common
 installation folders, then starts `ollama serve` when the local API is not already running.
-If Ollama is installed in a custom folder, set `OLLAMA_EXECUTABLE` to the full path of
-`ollama.exe`. Set `OLLAMA_AUTO_START=false` if you do not want the app to start Ollama.
+
+If Ollama is installed in a custom folder, configure its path in either of these ways:
+
+**From the app:**
+
+1. Open **Settings**.
+2. Find **Ollama status**.
+3. Enter the full path in **Custom Ollama path (optional)**.
+4. Click **Save path**.
+
+Example:
+
+```text
+E:\Ollama\ollama.exe
+```
+
+The path is saved for future launches. To clear it and return to automatic detection,
+remove the path and click **Save path**.
+
+**From PowerShell:**
+
+```powershell
+$env:OLLAMA_EXECUTABLE = "F:\Apps\AI Tools\Ollama\ollama.exe"
+npm start
+```
+
+For a permanent Windows user-level environment variable:
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+  "OLLAMA_EXECUTABLE",
+  "F:\Apps\AI Tools\Ollama\ollama.exe",
+  "User"
+)
+```
+
+Restart the app after setting the variable. Set `OLLAMA_AUTO_START=false` if you do
+not want the app to start Ollama automatically.
 
 ### Step 2 — Pull an AI model
 
