@@ -1,4 +1,4 @@
-const CACHE_NAME = 'local-ai-assistant-v5';
+const CACHE_NAME = 'local-ai-assistant-v6';
 const APP_ASSETS = [
   '/',
   '/index.html',

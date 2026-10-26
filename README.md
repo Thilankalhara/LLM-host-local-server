@@ -4,7 +4,7 @@
 ![Windows](https://img.shields.io/badge/platform-Windows-0078D6?style=for-the-badge&logo=windows)
 ![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)
 ![Ollama](https://img.shields.io/badge/powered%20by-Ollama-black?style=for-the-badge)
-[![Latest Release](https://img.shields.io/badge/latest%20release-v1.0.3-2ea44f?style=for-the-badge)](https://github.com/Thilankalhara/LLM-host-local-server/releases/tag/v1.0.3)
+[![Latest Release](https://img.shields.io/badge/latest%20release-v1.0.4-2ea44f?style=for-the-badge)](https://github.com/Thilankalhara/LLM-host-local-server/releases/tag/v1.0.4)
 [![Windows Installer](https://img.shields.io/badge/download-Windows%20Installer-107C10?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Thilankalhara/LLM-host-local-server/releases/latest)
 
 A privacy-first local AI chat application powered by [Ollama](https://ollama.com) and Express.js.
@@ -272,6 +272,10 @@ ollama list
 | `gemma2:9b` | `ollama pull gemma2:9b` | Larger machines |
 
 > ⚠️ The app recommends models based on device memory and CPU cores, but Ollama and Windows memory limits still apply.
+
+The model download catalog is refreshed from the official Ollama Library when the app
+loads, so newer Ollama models can appear without waiting for a new app build. If the
+website is unavailable, the app uses its built-in fallback catalog.
 
 ---
 

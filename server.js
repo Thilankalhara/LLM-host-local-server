@@ -527,6 +527,67 @@ async function fetchJsonWithTimeout(url, timeoutMs) {
   }
 }
 
+async function fetchTextWithTimeout(url, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'LocalAI/1.0 Ollama model catalog' },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function getFallbackModelCatalog() {
+  return [
+    { name: 'llama3.2:1b', size: 'low', label: 'Llama 3.2 1B' },
+    { name: 'phi3:mini', size: 'low', label: 'Phi-3 Mini' },
+    { name: 'llama3.2:3b', size: 'medium', label: 'Llama 3.2 3B' },
+    { name: 'qwen2.5:3b', size: 'medium', label: 'Qwen 2.5 3B' },
+    { name: 'qwen2.5-coder:3b', size: 'medium', label: 'Qwen 2.5 Coder 3B' },
+    { name: 'mistral:7b', size: 'medium', label: 'Mistral 7B' },
+    { name: 'llama3.1:8b', size: 'high', label: 'Llama 3.1 8B' },
+    { name: 'qwen2.5-coder:7b', size: 'high', label: 'Qwen 2.5 Coder 7B' },
+    { name: 'gemma2:9b', size: 'high', label: 'Gemma 2 9B' },
+  ];
+}
+
+function classifyWebModel(name) {
+  if (/(1b|2b|mini|small|tiny)/i.test(name)) return 'low';
+  if (/(9b|10b|12b|14b|20b|27b|32b|34b|40b|70b|72b|110b|405b)/i.test(name)) return 'high';
+  return 'medium';
+}
+
+async function fetchModelCatalog() {
+  const html = await fetchTextWithTimeout('https://ollama.com/library', 10000);
+  const names = [...html.matchAll(/href=["']\/library\/([a-z0-9._-]+)["']/gi)]
+    .map(match => match[1])
+    .filter((name, index, list) => list.indexOf(name) === index)
+    .slice(0, 150);
+
+  if (names.length === 0) throw new Error('Ollama library returned no models');
+  return names.map(name => ({
+    name,
+    size: classifyWebModel(name),
+    label: name,
+  }));
+}
+
+app.get('/api/model-catalog', async (req, res) => {
+  try {
+    const models = await fetchModelCatalog();
+    res.json({ source: 'ollama-library', models });
+  } catch (err) {
+    console.warn(`⚠️ Ollama web catalog unavailable; using fallback: ${err.message}`);
+    res.json({ source: 'fallback', models: getFallbackModelCatalog() });
+  }
+});
+
 async function checkOllamaStatus() {
   const tagsUrl = new URL('/api/tags', OLLAMA_HOST).toString();
   const tagsData = await fetchJsonWithTimeout(tagsUrl, OLLAMA_CHECK_TIMEOUT_MS);

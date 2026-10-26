@@ -422,7 +422,7 @@ async function pullModel() {
   }
 }
 
-const MODEL_CATALOG = [
+const FALLBACK_MODEL_CATALOG = [
   { name: 'llama3.2:1b', size: 'low', label: 'Llama 3.2 1B' },
   { name: 'phi3:mini', size: 'low', label: 'Phi-3 Mini' },
   { name: 'llama3.2:3b', size: 'medium', label: 'Llama 3.2 3B' },
@@ -433,6 +433,7 @@ const MODEL_CATALOG = [
   { name: 'qwen2.5-coder:7b', size: 'high', label: 'Qwen 2.5 Coder 7B' },
   { name: 'gemma2:9b', size: 'high', label: 'Gemma 2 9B' },
 ];
+let modelCatalog = FALLBACK_MODEL_CATALOG;
 
 function getDeviceProfile() {
   const deviceMemory = navigator.deviceMemory || 4;
@@ -450,6 +451,10 @@ function getRecommendedModels(profile) {
     medium: ['llama3.2:3b', 'qwen2.5:3b', 'qwen2.5-coder:3b', 'mistral:7b'],
     high: ['llama3.1:8b', 'qwen2.5-coder:7b', 'gemma2:9b'],
   };
+  const available = modelCatalog.filter(item => item.size === profile.tier);
+  if (available.length > 0) {
+    return available.slice(0, 5).map(item => item.name);
+  }
   return recommendedByTier[profile.tier] || recommendedByTier.medium;
 }
 
@@ -469,8 +474,17 @@ function updateResourceSummary(selectedModel = '') {
 
 async function refreshDownloadModelList() {
   try {
-    const res = await apiFetch('/api/models');
-    const installedModels = res.ok ? await res.json() : [];
+    const [installedResponse, catalogResponse] = await Promise.all([
+      apiFetch('/api/models'),
+      apiFetch('/api/model-catalog'),
+    ]);
+    const installedModels = installedResponse.ok ? await installedResponse.json() : [];
+    if (catalogResponse.ok) {
+      const catalogData = await catalogResponse.json();
+      if (Array.isArray(catalogData.models) && catalogData.models.length > 0) {
+        modelCatalog = catalogData.models;
+      }
+    }
     const profile = getDeviceProfile();
     const recommendedModels = getRecommendedModels(profile);
     const recommendedSet = new Set(recommendedModels);
@@ -499,7 +513,7 @@ async function refreshDownloadModelList() {
 
     const recommendedGroup = document.createElement('optgroup');
     recommendedGroup.label = `Recommended for this device (${profile.tier})`;
-    MODEL_CATALOG.filter(item => recommendedSet.has(item.name)).forEach((item) => {
+    modelCatalog.filter(item => recommendedSet.has(item.name)).forEach((item) => {
       if (installedSet.has(item.name)) return;
       const option = document.createElement('option');
       option.value = item.name;
@@ -517,7 +531,7 @@ async function refreshDownloadModelList() {
 
     const allGroup = document.createElement('optgroup');
     allGroup.label = 'All supported downloads';
-    MODEL_CATALOG.filter(item => !installedSet.has(item.name)).forEach((item) => {
+    modelCatalog.filter(item => !installedSet.has(item.name)).forEach((item) => {
       if (recommendedSet.has(item.name)) return;
       const option = document.createElement('option');
       option.value = item.name;
