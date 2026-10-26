@@ -1,6 +1,6 @@
 {
   "name": "llm-host-local-server",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "A fully local AI chat app powered by Ollama and Express.js. Runs 100% on your PC — no internet required, no API costs, total privacy.",
   "main": "electron-main.cjs",
   "scripts": {

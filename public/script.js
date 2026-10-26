@@ -191,10 +191,12 @@ async function saveOllamaPath() {
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
 
-  navigator.serviceWorker.getRegistrations().then((registrations) => {
-    return Promise.all(registrations.map((registration) => registration.unregister()));
-  }).then(() => {
-    return navigator.serviceWorker.register('/sw.js', { scope: '/' });
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    window.location.reload();
+  }, { once: true });
+
+  navigator.serviceWorker.register('/sw.js', { scope: '/' }).then((registration) => {
+    return registration.update().then(() => registration);
   }).then((registration) => {
     if (registration.waiting) {
       registration.waiting.postMessage({ type: 'SKIP_WAITING' });
