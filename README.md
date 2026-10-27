@@ -4,8 +4,7 @@
 ![Windows](https://img.shields.io/badge/platform-Windows-0078D6?style=for-the-badge&logo=windows)
 ![Node.js 18+](https://img.shields.io/badge/Node.js-18%2B-339933?style=for-the-badge&logo=node.js&logoColor=white)
 ![Ollama](https://img.shields.io/badge/powered%20by-Ollama-black?style=for-the-badge)
-[![Latest Release](https://img.shields.io/badge/latest%20release-v1.0.6-2ea44f?style=for-the-badge)](https://github.com/Thilankalhara/LLM-host-local-server/releases/tag/v1.0.6)
-[![Windows Installer](https://img.shields.io/badge/download-Windows%20Installer-107C10?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Thilankalhara/LLM-host-local-server/releases/latest)
+[![Download Latest Release](https://img.shields.io/badge/download-latest%20release-107C10?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/Thilankalhara/LLM-host-local-server/releases/latest)
 
 A privacy-first local AI chat application powered by [Ollama](https://ollama.com) and Express.js.
 Run conversations, memory, file uploads, model management, and optional public tunnelling
@@ -20,7 +19,7 @@ Download the latest installer from the
 The installer creates Start Menu and desktop shortcuts and lets you choose the installation
 directory. Ollama must be installed separately because the AI model runs locally on your PC.
 
-> **Windows installer:** The release asset is named `Local AI Assistant-<version>-x64.exe`.
+> **Windows installer:** The release asset is named `Local.AI.Assistant-<version>-x64.exe`.
 > For portable use, download the portable `.exe` asset when it is available.
 
 ---
@@ -181,7 +180,7 @@ npm install
 npm run dist:installer
 ```
 
-The installer is written to `dist/Local AI Assistant-<version>-x64.exe`.
+The installer is written to `dist/Local.AI.Assistant-<version>-x64.exe`.
 To build both the installer and portable package, run `npm run dist`.
 
 ---
